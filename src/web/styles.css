@@ -283,25 +283,29 @@ input:disabled {
   font-size: 13px;
 }
 
-.timeline-summary {
+.day-timeline-region,
+.day-timeline {
   display: grid;
   flex: 0 0 auto;
+}
+
+.day-timeline {
   gap: 8px;
   padding-top: 2px;
 }
 
-.timeline-summary > div:first-child {
+.day-timeline-header {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
 }
 
-.timeline-summary strong {
+.day-timeline-header strong {
   font-size: 13px;
 }
 
-.timeline-track {
+.day-timeline-track {
   position: relative;
   height: 42px;
   overflow: hidden;
@@ -310,22 +314,61 @@ input:disabled {
   background: #ecefea;
 }
 
-.timeline-empty {
+.day-timeline-empty {
   position: absolute;
   inset: 19px 10px auto;
   height: 2px;
   background: #c4cabf;
 }
 
-.timeline-span {
+.day-timeline-span {
   position: absolute;
   top: 0;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 3px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
   background: #4e9f70;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  padding: 0 5px;
 }
 
-.timeline-labels {
+.day-timeline-span:hover {
+  background: #3f8c60;
+}
+
+.day-timeline-span:focus-visible {
+  z-index: 2;
+  outline: 2px solid #1d242d;
+  outline-offset: -2px;
+}
+
+.day-timeline-span span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.day-timeline-playhead {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  z-index: 1;
+  width: 2px;
+  background: #111820;
+  box-shadow: 0 0 0 2px #ffffff;
+  transform: translateX(-1px);
+  pointer-events: none;
+}
+
+.day-timeline-labels {
   display: flex;
   justify-content: space-between;
   color: #66705f;

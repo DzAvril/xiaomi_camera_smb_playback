@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CameraStream, TimelineSpan } from "../shared/types";
 import { api } from "./api";
 import { CameraSidebar } from "./components/CameraSidebar";
+import { DayTimeline } from "./components/DayTimeline";
 import { RangeControls } from "./components/RangeControls";
 
 function todayInputValue(): string {
@@ -13,15 +14,12 @@ function todayInputValue(): string {
   return `${year}-${month}-${day}`;
 }
 
-function formatTimelineCount(count: number): string {
-  return `${count} timeline ${count === 1 ? "span" : "spans"}`;
-}
-
 export default function App() {
   const [cameras, setCameras] = useState<CameraStream[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [date, setDate] = useState(todayInputValue);
   const [timeline, setTimeline] = useState<TimelineSpan[]>([]);
+  const [selectedAtMs, setSelectedAtMs] = useState<number | null>(null);
   const [isLoadingCameras, setIsLoadingCameras] = useState(true);
   const [isLoadingTimeline, setIsLoadingTimeline] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -65,9 +63,21 @@ export default function App() {
     [cameras, selectedCameraId],
   );
 
+  function selectCamera(cameraId: string) {
+    setSelectedCameraId(cameraId);
+    setSelectedAtMs(null);
+  }
+
+  function changeDate(nextDate: string) {
+    setDate(nextDate);
+    setSelectedAtMs(null);
+  }
+
   useEffect(() => {
     if (!selectedCamera) {
       setTimeline([]);
+      setSelectedAtMs(null);
+      setIsLoadingTimeline(false);
       return;
     }
 
@@ -76,12 +86,16 @@ export default function App() {
 
     async function loadTimeline() {
       setIsLoadingTimeline(true);
+      setSelectedAtMs(null);
       setError(null);
 
       try {
         const nextTimeline = await api.getTimeline(cameraId, date);
         if (!cancelled) {
           setTimeline(nextTimeline);
+          if (nextTimeline.length === 0) {
+            setSelectedAtMs(null);
+          }
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -126,7 +140,7 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <CameraSidebar cameras={cameras} onSelectCamera={setSelectedCameraId} selectedCameraId={selectedCameraId} />
+      <CameraSidebar cameras={cameras} onSelectCamera={selectCamera} selectedCameraId={selectedCameraId} />
 
       <main className="playback-panel">
         <header className="playback-header">
@@ -146,7 +160,7 @@ export default function App() {
             date={date}
             disabled={!selectedCamera}
             isRefreshing={isRefreshing}
-            onDateChange={setDate}
+            onDateChange={changeDate}
             onRefresh={refreshIndex}
           />
         </header>
@@ -161,38 +175,9 @@ export default function App() {
           </div>
         </section>
 
-        <section className="timeline-summary" aria-label="Timeline summary">
-          <div>
-            <p className="section-label">Day timeline</p>
-            <strong>{isLoadingTimeline ? "Loading timeline" : formatTimelineCount(timeline.length)}</strong>
-          </div>
-          <div className="timeline-track" aria-hidden="true">
-            {timeline.length === 0 ? (
-              <span className="timeline-empty" />
-            ) : (
-              timeline.slice(0, 12).map((span) => {
-                const dayStart = new Date(`${date}T00:00:00+08:00`).getTime();
-                const left = ((span.startAtMs - dayStart) / 86_400_000) * 100;
-                const width = (span.durationSeconds / 86_400) * 100;
-
-                return (
-                  <span
-                    className="timeline-span"
-                    key={`${span.startAtMs}-${span.endAtMs}`}
-                    style={{ left: `${Math.max(0, Math.min(100, left))}%`, width: `${Math.max(0.5, width)}%` }}
-                  />
-                );
-              })
-            )}
-          </div>
-          <div className="timeline-labels">
-            <span>00:00</span>
-            <span>06:00</span>
-            <span>12:00</span>
-            <span>18:00</span>
-            <span>24:00</span>
-          </div>
-        </section>
+        <div className="day-timeline-region" aria-busy={isLoadingTimeline}>
+          <DayTimeline date={date} spans={timeline} selectedAtMs={selectedAtMs} onSelectTime={setSelectedAtMs} />
+        </div>
       </main>
     </div>
   );

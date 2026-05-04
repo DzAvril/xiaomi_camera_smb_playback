@@ -1,12 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { TimelineSpan } from "../../src/shared/types";
 import App from "../../src/web/App";
 
 const mocks = vi.hoisted(() => ({
   getPlaybackPlan: vi.fn(),
-  getTimeline: vi.fn(async () => []),
+  getTimeline: vi.fn<() => Promise<TimelineSpan[]>>(async () => []),
   listCameras: vi.fn(),
   refreshIndex: vi.fn(),
 }));
@@ -72,6 +74,44 @@ describe("App", () => {
 
     expect(await screen.findByText("load failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /refresh/i })).toBeEnabled();
+  });
+
+  it("clears timeline loading when refresh removes the selected camera during a request", async () => {
+    let resolveTimeline: (spans: TimelineSpan[]) => void = () => {};
+    const pendingTimeline = new Promise<TimelineSpan[]>((resolve) => {
+      resolveTimeline = resolve;
+    });
+    mocks.getTimeline.mockReturnValueOnce(pendingTimeline);
+    mocks.listCameras
+      .mockResolvedValueOnce([
+        {
+          id: "front-main",
+          rootId: "B888808A681C",
+          rootPath: "/recordings/B888808A681C",
+          channel: "00",
+          alias: "前院主摄",
+          enabled: true,
+          clipCount: 1,
+          recordedDays: 1,
+          totalSeconds: 600,
+          totalBytes: 134217728,
+          latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
+        },
+      ])
+      .mockResolvedValueOnce([]);
+
+    render(<App />);
+
+    await screen.findAllByText("前院主摄");
+    const timelineRegion = screen.getByLabelText("Day timeline").parentElement;
+    await waitFor(() => expect(timelineRegion).toHaveAttribute("aria-busy", "true"));
+
+    await userEvent.click(screen.getByRole("button", { name: /refresh/i }));
+
+    expect(await screen.findByText("No camera selected")).toBeInTheDocument();
+    expect(timelineRegion).toHaveAttribute("aria-busy", "false");
+
+    resolveTimeline([]);
   });
 
   it("keeps the playback panel layout independent of optional status banners", () => {
