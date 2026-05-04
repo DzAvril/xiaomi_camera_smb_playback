@@ -1,7 +1,9 @@
+/// <reference types="vitest" />
+
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
-export default defineConfig({
+const config = {
   plugins: [react()],
   build: {
     outDir: "dist-web",
@@ -12,4 +14,6 @@ export default defineConfig({
     setupFiles: ["tests/setup.ts"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"]
   }
-});
+};
+
+export default defineConfig(config);
