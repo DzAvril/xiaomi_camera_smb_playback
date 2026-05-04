@@ -68,6 +68,7 @@ export function openCatalog(databasePath: string) {
     CREATE INDEX IF NOT EXISTS idx_clips_camera_start ON clips(camera_id, start_at_ms);
     CREATE INDEX IF NOT EXISTS idx_clips_camera_end ON clips(camera_id, end_at_ms);
   `);
+  db.exec("CREATE TEMP TABLE IF NOT EXISTS seen_clip_ids (id TEXT PRIMARY KEY)");
 
   const upsertCameraStmt = db.prepare(`
     INSERT INTO camera_streams (id, root_id, root_path, channel, alias, enabled, created_at_ms, updated_at_ms)
@@ -96,6 +97,25 @@ export function openCatalog(databasePath: string) {
       mtime_ms = excluded.mtime_ms,
       indexed_at_ms = excluded.indexed_at_ms
   `);
+  const clearSeenClipIdsStmt = db.prepare("DELETE FROM seen_clip_ids");
+  const insertSeenClipIdStmt = db.prepare("INSERT OR IGNORE INTO seen_clip_ids (id) VALUES (?)");
+  const deleteClipsNotInSeenTableStmt = db.prepare(`
+    DELETE FROM clips
+    WHERE camera_id = ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM seen_clip_ids
+        WHERE seen_clip_ids.id = clips.id
+      )
+  `);
+  const removeClipsNotInSeenTable = db.transaction((cameraId: string, seenIds: string[]) => {
+    clearSeenClipIdsStmt.run();
+    for (const seenId of seenIds) {
+      insertSeenClipIdStmt.run(seenId);
+    }
+    deleteClipsNotInSeenTableStmt.run(cameraId);
+    clearSeenClipIdsStmt.run();
+  });
 
   function toClip(row: ClipRow): ClipRecord {
     return {
@@ -126,8 +146,7 @@ export function openCatalog(databasePath: string) {
         return;
       }
 
-      const bindParams = seenIds.map(() => "?").join(",");
-      db.prepare(`DELETE FROM clips WHERE camera_id = ? AND id NOT IN (${bindParams})`).run(cameraId, ...seenIds);
+      removeClipsNotInSeenTable(cameraId, seenIds);
     },
     listCameras(): CameraStream[] {
       const rows = db
@@ -139,7 +158,7 @@ export function openCatalog(databasePath: string) {
             COALESCE(SUM(c.duration_seconds), 0) AS total_seconds,
             COALESCE(SUM(c.size_bytes), 0) AS total_bytes,
             MAX(c.end_at_ms) AS latest_end_at_ms,
-            COUNT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000, 'unixepoch', 'localtime')) AS recorded_days
+            COUNT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000 + 8 * 60 * 60, 'unixepoch')) AS recorded_days
           FROM camera_streams cs
           LEFT JOIN clips c ON c.camera_id = cs.id
           GROUP BY cs.id
