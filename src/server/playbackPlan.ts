@@ -21,26 +21,27 @@ export function buildPlaybackPlan(
   for (const clip of sorted) {
     const segmentStartMs = Math.max(clip.startAtMs, startAtMs);
     const segmentEndMs = Math.min(clip.endAtMs, endAtMs);
+    const effectiveStartMs = Math.max(segmentStartMs, cursorMs);
 
-    if (segmentStartMs > cursorMs) {
-      gaps.push(makeGap(cursorMs, segmentStartMs, startAtMs));
+    if (effectiveStartMs > cursorMs) {
+      gaps.push(makeGap(cursorMs, effectiveStartMs, startAtMs));
     }
 
-    if (segmentEndMs > segmentStartMs) {
-      const virtualStartSeconds = (segmentStartMs - startAtMs) / 1000;
+    if (segmentEndMs > effectiveStartMs) {
+      const virtualStartSeconds = (effectiveStartMs - startAtMs) / 1000;
       const virtualEndSeconds = (segmentEndMs - startAtMs) / 1000;
       const segment: PlaybackSegment = {
         clipId: clip.id,
         fileUrl: `/api/clips/${clip.id}/file`,
-        wallStartAtMs: segmentStartMs,
+        wallStartAtMs: effectiveStartMs,
         wallEndAtMs: segmentEndMs,
-        clipOffsetSeconds: (segmentStartMs - clip.startAtMs) / 1000,
-        playableSeconds: (segmentEndMs - segmentStartMs) / 1000,
+        clipOffsetSeconds: (effectiveStartMs - clip.startAtMs) / 1000,
+        playableSeconds: (segmentEndMs - effectiveStartMs) / 1000,
         virtualStartSeconds,
         virtualEndSeconds
       };
       segments.push(segment);
-      cursorMs = Math.max(cursorMs, segmentEndMs);
+      cursorMs = segmentEndMs;
     }
   }
 
