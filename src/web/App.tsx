@@ -173,6 +173,11 @@ export default function App() {
   }
 
   async function refreshIndex() {
+    playbackRequestId.current += 1;
+    setSelectedAtMs(null);
+    setPlaybackPlan(null);
+    setPlaybackError(null);
+    setIsLoadingPlayback(false);
     setIsRefreshing(true);
     setError(null);
 

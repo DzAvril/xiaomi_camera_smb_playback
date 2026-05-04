@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CameraStream, PlaybackPlan, TimelineSpan } from "../../src/shared/types";
@@ -196,6 +196,51 @@ describe("App", () => {
 
     expect(playbackPanelRule).toContain("display: flex");
     expect(playbackPanelRule).not.toContain("grid-template-rows");
+  });
+
+  it("does not render pending playback after refresh starts and then fails", async () => {
+    let resolvePlayback: (plan: PlaybackPlan) => void = () => {};
+    let rejectRefresh: (error: Error) => void = () => {};
+    const pendingPlayback = new Promise<PlaybackPlan>((resolve) => {
+      resolvePlayback = resolve;
+    });
+    const pendingRefresh = new Promise<unknown>((_resolve, reject) => {
+      rejectRefresh = reject;
+    });
+    const spanStartAtMs = shanghaiTimestamp("2026-05-04", "12:00:00");
+
+    mocks.getTimeline.mockImplementationOnce(async (_cameraId, timelineDate) => [
+      shanghaiSpan(timelineDate, "12:00:00", "13:00:00"),
+    ]);
+    mocks.getPlaybackPlan.mockReturnValueOnce(pendingPlayback);
+    mocks.refreshIndex.mockReturnValueOnce(pendingRefresh);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" }));
+    await waitFor(() => expect(mocks.getPlaybackPlan).toHaveBeenCalledTimes(1));
+
+    await userEvent.click(screen.getByRole("button", { name: /refresh/i }));
+
+    await act(async () => {
+      resolvePlayback(playbackPlan(spanStartAtMs));
+      await pendingPlayback;
+    });
+
+    expect(screen.queryByRole("slider", { name: "Playback timeline" })).not.toBeInTheDocument();
+
+    await act(async () => {
+      rejectRefresh(new Error("refresh failed"));
+      try {
+        await pendingRefresh;
+      } catch {
+        // The app reports the refresh error through UI state.
+      }
+    });
+
+    expect(await screen.findByText("refresh failed")).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "Playback timeline" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Selected time 12:00")).not.toBeInTheDocument();
   });
 
   it("requests a 30-minute playback plan when a timeline span is selected", async () => {
