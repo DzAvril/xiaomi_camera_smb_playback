@@ -9,16 +9,47 @@ on:
 permissions:
   actions: read
   contents: read
-  packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/dzavril/xiaomi-camera-smb-playback
   TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_BOT_TOKEN || vars.TELEGRAM_BOT_TOKEN }}
   TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID != '' && secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            image:
+              - 'Dockerfile'
+              - 'src/**'
+              - 'config/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.json'
+              - 'tsconfig.server.json'
+              - 'vite.config.ts'
+              - 'index.html'
+              - '.github/workflows/docker-publish.yml'
+
   build-and-push:
     runs-on: ubuntu-latest
+    needs: changes
+    environment: BuildImage
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/') ||
+      needs.changes.outputs.image == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,26 +73,25 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Login to GHCR
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}/xiaomi-camera-smb-playback
           tags: |
             type=raw,value=v${{ steps.appver.outputs.version }}
             type=raw,value=${{ steps.appver.outputs.version }}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=sha
             type=ref,event=tag
 
-      - name: Build and push image
+      - name: Build and Push
         uses: docker/build-push-action@v6
         with:
           context: .

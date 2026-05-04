@@ -77,13 +77,18 @@ The example publishes `http://<nas-ip>:8088`, stores SQLite state in `./app-data
 
 ## GitHub Actions Image Publish
 
-Pushing to `main`, pushing a tag like `v0.1.0`, or manually running `Docker Publish` builds and pushes a multi-arch Docker image to GitHub Container Registry:
+Pushing image-related changes to `main`, pushing a tag like `v0.1.0`, or manually running `Docker Publish` builds and pushes a multi-arch Docker image to Docker Hub:
 
 ```text
-ghcr.io/dzavril/xiaomi-camera-smb-playback
+dzavril/xiaomi-camera-smb-playback
 ```
 
-The image publish uses the built-in `GITHUB_TOKEN`. Configure optional Telegram repository secrets or variables to receive build success notifications:
+Configure the `BuildImage` environment, repository secrets, or repository variables with Docker Hub credentials:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+
+Configure optional Telegram secrets or variables to receive build success notifications:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_CHAT_ID`
