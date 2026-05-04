@@ -1,4 +1,4 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, statSync } from "node:fs";
 import path from "node:path";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { ClipRecord } from "../shared/types";
@@ -45,18 +45,19 @@ export function parseRangeHeader(header: string | undefined, sizeBytes: number):
 
 export function streamClipFile(request: FastifyRequest, reply: FastifyReply, clip: ClipRecord) {
   const filePath = resolveClipPath(clip.rootPath, clip.relativePath);
-  const range = parseRangeHeader(request.headers.range, clip.sizeBytes);
+  const sizeBytes = statSync(filePath).size;
+  const range = parseRangeHeader(request.headers.range, sizeBytes);
 
   reply.header("Accept-Ranges", "bytes").type("video/mp4");
 
   if (range === null) {
-    return reply.header("Content-Length", clip.sizeBytes).send(createReadStream(filePath));
+    return reply.header("Content-Length", sizeBytes).send(createReadStream(filePath));
   }
 
   const contentLength = range.end - range.start + 1;
   return reply
     .code(206)
     .header("Content-Length", contentLength)
-    .header("Content-Range", `bytes ${range.start}-${range.end}/${clip.sizeBytes}`)
+    .header("Content-Range", `bytes ${range.start}-${range.end}/${sizeBytes}`)
     .send(createReadStream(filePath, { start: range.start, end: range.end }));
 }

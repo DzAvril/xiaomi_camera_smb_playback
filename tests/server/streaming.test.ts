@@ -94,6 +94,25 @@ describe("streamClipFile", () => {
     }
   });
 
+  it("uses the actual file size for full-file content length when indexed metadata is stale", async () => {
+    const root = createTempDir();
+    const file = path.join(root, "clip.mp4");
+    writeFileSync(file, Buffer.from("0123456789"));
+
+    const app = Fastify();
+    app.get("/clip", (request, reply) => streamClipFile(request, reply, clip(root, "clip.mp4", 99)));
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/clip" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-length"]).toBe("10");
+      expect(response.body).toBe("0123456789");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("streams only the requested byte range", async () => {
     const root = createTempDir();
     const file = path.join(root, "clip.mp4");
@@ -115,6 +134,30 @@ describe("streamClipFile", () => {
       expect(response.headers["content-length"]).toBe("4");
       expect(response.headers["content-range"]).toBe("bytes 2-5/10");
       expect(response.body).toBe("2345");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("uses the actual file size for range parsing and content range when indexed metadata is stale", async () => {
+    const root = createTempDir();
+    const file = path.join(root, "clip.mp4");
+    writeFileSync(file, Buffer.from("0123456789"));
+
+    const app = Fastify();
+    app.get("/clip", (request, reply) => streamClipFile(request, reply, clip(root, "clip.mp4", 99)));
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/clip",
+        headers: { range: "bytes=7-98" },
+      });
+
+      expect(response.statusCode).toBe(206);
+      expect(response.headers["content-length"]).toBe("3");
+      expect(response.headers["content-range"]).toBe("bytes 7-9/10");
+      expect(response.body).toBe("789");
     } finally {
       await app.close();
     }
