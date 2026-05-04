@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import App from "../../src/web/App";
@@ -33,5 +35,13 @@ describe("App", () => {
     expect(screen.getByText("1 day")).toBeInTheDocument();
     expect(screen.getByText("10 min")).toBeInTheDocument();
     expect(screen.getByText("128 MB")).toBeInTheDocument();
+  });
+
+  it("keeps the playback panel layout independent of optional status banners", () => {
+    const styles = readFileSync(path.join(process.cwd(), "src/web/styles.css"), "utf8");
+    const playbackPanelRule = styles.match(/\.playback-panel\s*\{[^}]+\}/)?.[0] ?? "";
+
+    expect(playbackPanelRule).toContain("display: flex");
+    expect(playbackPanelRule).not.toContain("grid-template-rows");
   });
 });

@@ -164,8 +164,8 @@ input:disabled {
 }
 
 .playback-panel {
-  display: grid;
-  grid-template-rows: auto auto minmax(260px, 42vh) auto 1fr;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   min-width: 0;
   padding: 18px;
@@ -245,10 +245,10 @@ input:disabled {
 
 .video-placeholder {
   display: flex;
+  flex: 0 0 clamp(260px, 42vh, 420px);
   align-items: center;
   justify-content: center;
   gap: 14px;
-  min-height: 260px;
   border-radius: 6px;
   color: #e9edf1;
   background: #20262d;
@@ -270,6 +270,7 @@ input:disabled {
 
 .timeline-summary {
   display: grid;
+  flex: 0 0 auto;
   gap: 8px;
   padding-top: 2px;
 }
