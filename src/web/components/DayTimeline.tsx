@@ -1,7 +1,9 @@
 import type { TimelineSpan } from "../../shared/types";
 
 const DAY_MS = 86_400_000;
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 const TICK_LABELS = ["00:00", "06:00", "12:00", "18:00", "24:00"] as const;
+const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 type DayTimelineProps = {
   date: string;
@@ -18,8 +20,14 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
 }
 
-function getLocalDayStart(date: string): number {
-  return new Date(`${date}T00:00:00`).getTime();
+function getShanghaiDayStart(date: string): number {
+  const match = DATE_PATTERN.exec(date);
+  if (!match) {
+    return Number.NaN;
+  }
+
+  const [, year, month, day] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day)) - SHANGHAI_OFFSET_MS;
 }
 
 function formatTime(timestampMs: number, dayStartMs: number): string {
@@ -29,8 +37,8 @@ function formatTime(timestampMs: number, dayStartMs: number): string {
     return "24:00";
   }
 
-  const value = new Date(timestampMs);
-  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+  const value = new Date(Math.max(dayStartMs, timestampMs) + SHANGHAI_OFFSET_MS);
+  return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}`;
 }
 
 function toPercent(timestampMs: number, dayStartMs: number): number {
@@ -60,7 +68,7 @@ function formatTimelineCount(count: number): string {
 }
 
 export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTimelineProps) {
-  const dayStartMs = getLocalDayStart(date);
+  const dayStartMs = getShanghaiDayStart(date);
   const selectedLeft = selectedAtMs === null ? null : toPercent(selectedAtMs, dayStartMs);
 
   return (

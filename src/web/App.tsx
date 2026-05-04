@@ -86,6 +86,7 @@ export default function App() {
 
     async function loadTimeline() {
       setIsLoadingTimeline(true);
+      setTimeline([]);
       setSelectedAtMs(null);
       setError(null);
 

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TimelineSpan } from "../../src/shared/types";
@@ -8,7 +8,7 @@ import App from "../../src/web/App";
 
 const mocks = vi.hoisted(() => ({
   getPlaybackPlan: vi.fn(),
-  getTimeline: vi.fn<() => Promise<TimelineSpan[]>>(async () => []),
+  getTimeline: vi.fn<(cameraId: string, date: string) => Promise<TimelineSpan[]>>(async () => []),
   listCameras: vi.fn(),
   refreshIndex: vi.fn(),
 }));
@@ -47,6 +47,18 @@ describe("App", () => {
     ]);
     mocks.refreshIndex.mockResolvedValue({});
   });
+
+  function shanghaiSpan(date: string, start: string, end: string): TimelineSpan {
+    const startAtMs = new Date(`${date}T${start}+08:00`).getTime();
+    const endAtMs = new Date(`${date}T${end}+08:00`).getTime();
+
+    return {
+      startAtMs,
+      endAtMs,
+      durationSeconds: (endAtMs - startAtMs) / 1000,
+      clipIds: [`${date}-${start}`],
+    };
+  }
 
   it("renders the selected camera and recording stats", async () => {
     render(<App />);
@@ -112,6 +124,32 @@ describe("App", () => {
     expect(timelineRegion).toHaveAttribute("aria-busy", "false");
 
     resolveTimeline([]);
+  });
+
+  it("clears stale timeline spans while a new date request is loading", async () => {
+    let resolveTimeline: (spans: TimelineSpan[]) => void = () => {};
+    const pendingTimeline = new Promise<TimelineSpan[]>((resolve) => {
+      resolveTimeline = resolve;
+    });
+    mocks.getTimeline
+      .mockImplementationOnce(async (_cameraId, timelineDate) => [shanghaiSpan(timelineDate, "12:00:00", "13:00:00")])
+      .mockReturnValueOnce(pendingTimeline);
+
+    render(<App />);
+
+    const oldSpan = await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" });
+    await userEvent.click(oldSpan);
+    expect(screen.getByLabelText("Selected time 12:00")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Playback date"), { target: { value: "2026-05-05" } });
+
+    await waitFor(() => expect(mocks.getTimeline).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("button", { name: "Recorded span 12:00 - 13:00" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Selected time 12:00")).not.toBeInTheDocument();
+
+    resolveTimeline([shanghaiSpan("2026-05-05", "14:00:00", "15:00:00")]);
+    expect(await screen.findByRole("button", { name: "Recorded span 14:00 - 15:00" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Selected time 12:00")).not.toBeInTheDocument();
   });
 
   it("keeps the playback panel layout independent of optional status banners", () => {

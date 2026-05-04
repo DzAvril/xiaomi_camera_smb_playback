@@ -1,25 +1,37 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TimelineSpan } from "../../src/shared/types";
 import { DayTimeline } from "../../src/web/components/DayTimeline";
 
-function localTimestamp(date: string, time: string): number {
-  return new Date(`${date}T${time}`).getTime();
+const originalTimezone = process.env.TZ;
+
+function shanghaiTimestamp(date: string, time: string): number {
+  return new Date(`${date}T${time}+08:00`).getTime();
+}
+
+function renderTimeline(date: string, spans: TimelineSpan[], selectedAtMs: number | null, onSelectTime = vi.fn()) {
+  render(<DayTimeline date={date} spans={spans} selectedAtMs={selectedAtMs} onSelectTime={onSelectTime} />);
+  return onSelectTime;
 }
 
 describe("DayTimeline", () => {
+  afterEach(() => {
+    process.env.TZ = originalTimezone;
+    cleanup();
+  });
+
   it("renders recorded spans as selectable controls and marks the selected time", async () => {
     const date = "2026-05-04";
     const span: TimelineSpan = {
-      startAtMs: localTimestamp(date, "12:00:00"),
-      endAtMs: localTimestamp(date, "13:00:00"),
+      startAtMs: shanghaiTimestamp(date, "12:00:00"),
+      endAtMs: shanghaiTimestamp(date, "13:00:00"),
       durationSeconds: 3_600,
       clipIds: ["clip-1"],
     };
     const onSelectTime = vi.fn();
 
-    render(<DayTimeline date={date} spans={[span]} selectedAtMs={localTimestamp(date, "12:30:00")} onSelectTime={onSelectTime} />);
+    renderTimeline(date, [span], shanghaiTimestamp(date, "12:30:00"), onSelectTime);
 
     const spanButton = screen.getByRole("button", { name: "Recorded span 12:00 - 13:00" });
     expect(spanButton).toHaveAttribute("title", "12:00 - 13:00");
@@ -35,5 +47,41 @@ describe("DayTimeline", () => {
 
     expect(onSelectTime).toHaveBeenCalledWith(span.startAtMs);
     expect(screen.getByLabelText("Selected time 12:30")).toHaveStyle({ left: "52.083333%" });
+  });
+
+  it("renders Shanghai day positions and labels when the browser timezone differs", () => {
+    process.env.TZ = "UTC";
+    const date = "2026-05-04";
+    const span: TimelineSpan = {
+      startAtMs: shanghaiTimestamp(date, "12:00:00"),
+      endAtMs: shanghaiTimestamp(date, "13:00:00"),
+      durationSeconds: 3_600,
+      clipIds: ["clip-1"],
+    };
+
+    renderTimeline(date, [span], shanghaiTimestamp(date, "12:30:00"));
+
+    expect(screen.getByRole("button", { name: "Recorded span 12:00 - 13:00" })).toHaveStyle({
+      left: "50%",
+      width: "4.166667%",
+    });
+    expect(screen.getByLabelText("Selected time 12:30")).toHaveStyle({ left: "52.083333%" });
+  });
+
+  it("clamps spans that cross the Shanghai day boundaries", () => {
+    process.env.TZ = "UTC";
+    const span: TimelineSpan = {
+      startAtMs: shanghaiTimestamp("2026-05-03", "23:30:00"),
+      endAtMs: shanghaiTimestamp("2026-05-05", "00:30:00"),
+      durationSeconds: 90_000,
+      clipIds: ["clip-1"],
+    };
+
+    renderTimeline("2026-05-04", [span], null);
+
+    expect(screen.getByRole("button", { name: "Recorded span 00:00 - 24:00" })).toHaveStyle({
+      left: "0%",
+      width: "100%",
+    });
   });
 });
