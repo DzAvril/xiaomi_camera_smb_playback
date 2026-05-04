@@ -3,13 +3,13 @@ import path from "node:path";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { TimelineSpan } from "../../src/shared/types";
+import type { CameraStream, PlaybackPlan, TimelineSpan } from "../../src/shared/types";
 import App from "../../src/web/App";
 
 const mocks = vi.hoisted(() => ({
-  getPlaybackPlan: vi.fn(),
+  getPlaybackPlan: vi.fn<(cameraId: string, start: string, end: string) => Promise<PlaybackPlan>>(),
   getTimeline: vi.fn<(cameraId: string, date: string) => Promise<TimelineSpan[]>>(async () => []),
-  listCameras: vi.fn(),
+  listCameras: vi.fn<() => Promise<CameraStream[]>>(),
   refreshIndex: vi.fn(),
 }));
 
@@ -29,6 +29,7 @@ describe("App", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getPlaybackPlan.mockResolvedValue(playbackPlan(shanghaiTimestamp("2026-05-04", "12:00:00")));
     mocks.getTimeline.mockResolvedValue([]);
     mocks.listCameras.mockResolvedValue([
       {
@@ -48,15 +49,50 @@ describe("App", () => {
     mocks.refreshIndex.mockResolvedValue({});
   });
 
+  function shanghaiTimestamp(date: string, time: string): number {
+    return new Date(`${date}T${time}+08:00`).getTime();
+  }
+
   function shanghaiSpan(date: string, start: string, end: string): TimelineSpan {
-    const startAtMs = new Date(`${date}T${start}+08:00`).getTime();
-    const endAtMs = new Date(`${date}T${end}+08:00`).getTime();
+    const startAtMs = shanghaiTimestamp(date, start);
+    const endAtMs = shanghaiTimestamp(date, end);
 
     return {
       startAtMs,
       endAtMs,
       durationSeconds: (endAtMs - startAtMs) / 1000,
       clipIds: [`${date}-${start}`],
+    };
+  }
+
+  function playbackPlan(startAtMs: number): PlaybackPlan {
+    return {
+      cameraId: "front-main",
+      startAtMs,
+      endAtMs: startAtMs + 30 * 60 * 1000,
+      durationSeconds: 1800,
+      playableSeconds: 600,
+      segments: [
+        {
+          clipId: "clip-a",
+          fileUrl: "/api/clips/clip-a/file?token=encoded%20value",
+          wallStartAtMs: startAtMs,
+          wallEndAtMs: startAtMs + 10 * 60 * 1000,
+          clipOffsetSeconds: 0,
+          playableSeconds: 600,
+          virtualStartSeconds: 0,
+          virtualEndSeconds: 600,
+        },
+      ],
+      gaps: [
+        {
+          startAtMs: startAtMs + 10 * 60 * 1000,
+          endAtMs: startAtMs + 30 * 60 * 1000,
+          durationSeconds: 1200,
+          virtualStartSeconds: 600,
+          virtualEndSeconds: 1800,
+        },
+      ],
     };
   }
 
@@ -140,12 +176,14 @@ describe("App", () => {
     const oldSpan = await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" });
     await userEvent.click(oldSpan);
     expect(screen.getByLabelText("Selected time 12:00")).toBeInTheDocument();
+    expect(await screen.findByRole("slider", { name: "Playback timeline" })).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Playback date"), { target: { value: "2026-05-05" } });
 
     await waitFor(() => expect(mocks.getTimeline).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("button", { name: "Recorded span 12:00 - 13:00" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Selected time 12:00")).not.toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "Playback timeline" })).not.toBeInTheDocument();
 
     resolveTimeline([shanghaiSpan("2026-05-05", "14:00:00", "15:00:00")]);
     expect(await screen.findByRole("button", { name: "Recorded span 14:00 - 15:00" })).toBeInTheDocument();
@@ -158,5 +196,68 @@ describe("App", () => {
 
     expect(playbackPanelRule).toContain("display: flex");
     expect(playbackPanelRule).not.toContain("grid-template-rows");
+  });
+
+  it("requests a 30-minute playback plan when a timeline span is selected", async () => {
+    mocks.getTimeline.mockImplementationOnce(async (_cameraId, timelineDate) => [
+      shanghaiSpan(timelineDate, "12:00:00", "13:00:00"),
+    ]);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" }));
+
+    await waitFor(() =>
+      expect(mocks.getPlaybackPlan).toHaveBeenCalledWith(
+        "front-main",
+        "2026-05-04T04:00:00.000Z",
+        "2026-05-04T04:30:00.000Z",
+      ),
+    );
+    expect(await screen.findByRole("slider", { name: "Playback timeline" })).toBeInTheDocument();
+  });
+
+  it("clears a loaded playback plan when the selected camera changes", async () => {
+    mocks.listCameras.mockResolvedValue([
+      {
+        id: "front-main",
+        rootId: "B888808A681C",
+        rootPath: "/recordings/B888808A681C",
+        channel: "00",
+        alias: "前院主摄",
+        enabled: true,
+        clipCount: 1,
+        recordedDays: 1,
+        totalSeconds: 600,
+        totalBytes: 134217728,
+        latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
+      },
+      {
+        id: "side-main",
+        rootId: "B888808A681D",
+        rootPath: "/recordings/B888808A681D",
+        channel: "01",
+        alias: "侧院主摄",
+        enabled: true,
+        clipCount: 1,
+        recordedDays: 1,
+        totalSeconds: 600,
+        totalBytes: 134217728,
+        latestEndAtMs: new Date("2026-05-04T04:10:00.000Z").getTime(),
+      },
+    ]);
+    mocks.getTimeline.mockImplementation(async (_cameraId, timelineDate) => [
+      shanghaiSpan(timelineDate, "12:00:00", "13:00:00"),
+    ]);
+
+    render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" }));
+    expect(await screen.findByRole("slider", { name: "Playback timeline" })).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole("button", { name: /侧院主摄/ }));
+
+    expect(screen.queryByRole("slider", { name: "Playback timeline" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Selected time 12:00")).not.toBeInTheDocument();
   });
 });
