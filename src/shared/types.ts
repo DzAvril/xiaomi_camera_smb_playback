@@ -36,6 +36,12 @@ export type TimelineSpan = {
   clipIds: string[];
 };
 
+export type RecordingDay = {
+  date: string;
+  totalBytes: number;
+  totalSeconds: number;
+};
+
 export type PlaybackSegment = {
   clipId: string;
   fileUrl: string;

@@ -27,13 +27,12 @@ ENV NODE_ENV=production \
   PORT=8080 \
   HOST=0.0.0.0 \
   DATA_DIR=/app/app-data \
-  CAMERA_CONFIG_PATH=/app/config/cameras.yaml
+  RECORDINGS_DIR=/recordings
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist-server ./dist-server
 COPY --from=build /app/dist-web ./dist-web
 COPY package.json package-lock.json ./
-COPY config/cameras.example.yaml ./config/cameras.example.yaml
 
 EXPOSE 8080
 CMD ["node", "dist-server/server/main.js"]

@@ -1,3 +1,4 @@
+import { type MouseEvent, useRef, useState } from "react";
 import type { TimelineSpan } from "../../shared/types";
 
 const DAY_MS = 86_400_000;
@@ -41,6 +42,19 @@ function formatTime(timestampMs: number, dayStartMs: number): string {
   return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}`;
 }
 
+function formatPreciseTime(timestampMs: number, dayStartMs: number): string {
+  const dayEndMs = dayStartMs + DAY_MS;
+
+  if (timestampMs >= dayEndMs) {
+    return "24:00:00";
+  }
+
+  const value = new Date(Math.max(dayStartMs, timestampMs) + SHANGHAI_OFFSET_MS);
+  return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}:${String(
+    value.getUTCSeconds(),
+  ).padStart(2, "0")}`;
+}
+
 function toPercent(timestampMs: number, dayStartMs: number): number {
   return clampPercent(((timestampMs - dayStartMs) / DAY_MS) * 100);
 }
@@ -68,8 +82,37 @@ function formatTimelineCount(count: number): string {
 }
 
 export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTimelineProps) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const [hoveredTime, setHoveredTime] = useState<{ left: number; timestampMs: number } | null>(null);
   const dayStartMs = getShanghaiDayStart(date);
   const selectedLeft = selectedAtMs === null ? null : toPercent(selectedAtMs, dayStartMs);
+
+  function getTimestampFromClientX(clientX: number): { left: number; timestampMs: number } | null {
+    const track = trackRef.current;
+    if (!track) {
+      return null;
+    }
+
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return null;
+    }
+
+    const left = clampPercent(((clientX - rect.left) / rect.width) * 100);
+    return {
+      left,
+      timestampMs: Math.round(dayStartMs + (left / 100) * DAY_MS),
+    };
+  }
+
+  function updateHoveredTime(event: MouseEvent<HTMLElement>) {
+    setHoveredTime(getTimestampFromClientX(event.clientX));
+  }
+
+  function selectClientTime(event: MouseEvent<HTMLElement>, fallbackTimestampMs?: number) {
+    const selected = getTimestampFromClientX(event.clientX);
+    onSelectTime(selected?.timestampMs ?? fallbackTimestampMs ?? dayStartMs);
+  }
 
   return (
     <section className="day-timeline" aria-label="Day timeline">
@@ -78,7 +121,14 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
         <strong>{formatTimelineCount(spans.length)}</strong>
       </div>
 
-      <div className="day-timeline-track" aria-label="Recorded spans">
+      <div
+        className="day-timeline-track"
+        aria-label="Recorded spans"
+        onClick={selectClientTime}
+        onMouseLeave={() => setHoveredTime(null)}
+        onMouseMove={updateHoveredTime}
+        ref={trackRef}
+      >
         {spans.length === 0 ? (
           <span className="day-timeline-empty" aria-hidden="true" />
         ) : (
@@ -91,7 +141,10 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
                 aria-label={`Recorded span ${label}`}
                 className="day-timeline-span"
                 key={`${span.startAtMs}-${span.endAtMs}`}
-                onClick={() => onSelectTime(span.startAtMs)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  selectClientTime(event, span.startAtMs);
+                }}
                 style={{ left: `${formatPercent(left)}%`, width: `${formatPercent(width)}%` }}
                 title={label}
                 type="button"
@@ -108,6 +161,16 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
             className="day-timeline-playhead"
             style={{ left: `${formatPercent(selectedLeft)}%` }}
           />
+        )}
+
+        {hoveredTime === null ? null : (
+          <span
+            aria-label={`Hovered time ${formatPreciseTime(hoveredTime.timestampMs, dayStartMs)}`}
+            className="day-timeline-hover-label"
+            style={{ left: `${formatPercent(hoveredTime.left)}%` }}
+          >
+            {formatPreciseTime(hoveredTime.timestampMs, dayStartMs)}
+          </span>
         )}
       </div>
 

@@ -3,6 +3,7 @@ import { PLAYBACK_RATES, type PlaybackPlan, type PlaybackRate } from "../../shar
 import { findNextSegmentAfter, findSegmentAtVirtualTime } from "./virtualPlayback";
 
 type VirtualPlayerProps = {
+  onWallTimeChange?: (timestampMs: number | null) => void;
   plan: PlaybackPlan | null;
 };
 
@@ -25,15 +26,6 @@ function clamp(value: number, min: number, max: number): number {
   }
 
   return Math.max(min, Math.min(max, value));
-}
-
-function formatElapsed(seconds: number): string {
-  const safeSeconds = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(safeSeconds / 3600);
-  const minutes = Math.floor((safeSeconds % 3600) / 60);
-  const remainingSeconds = safeSeconds % 60;
-
-  return [hours, minutes, remainingSeconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 function formatWallTime(plan: PlaybackPlan, virtualSeconds: number): string {
@@ -64,15 +56,13 @@ function resolveVirtualTime(plan: PlaybackPlan, requestedSeconds: number): Resol
   };
 }
 
-export function VirtualPlayer({ plan }: VirtualPlayerProps) {
+export function VirtualPlayer({ onWallTimeChange, plan }: VirtualPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [virtualSeconds, setVirtualSeconds] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
   const [playbackRate, setPlaybackRate] = useState<PlaybackRate>(1);
 
   const currentMatch = useMemo(() => findSegmentAtVirtualTime(plan, virtualSeconds), [plan, virtualSeconds]);
-  const durationSeconds = plan?.durationSeconds ?? 0;
-  const rangeValue = clamp(virtualSeconds, 0, durationSeconds);
 
   useEffect(() => {
     setPlaybackRate(1);
@@ -80,13 +70,23 @@ export function VirtualPlayer({ plan }: VirtualPlayerProps) {
     if (!plan) {
       setNotice(null);
       setVirtualSeconds(0);
+      onWallTimeChange?.(null);
       return;
     }
 
     const resolved = resolveVirtualTime(plan, 0);
     setNotice(resolved.notice);
     setVirtualSeconds(resolved.virtualSeconds);
-  }, [plan]);
+    onWallTimeChange?.(plan.startAtMs + resolved.virtualSeconds * 1000);
+  }, [onWallTimeChange, plan]);
+
+  useEffect(() => {
+    if (!plan) {
+      return;
+    }
+
+    onWallTimeChange?.(plan.startAtMs + virtualSeconds * 1000);
+  }, [onWallTimeChange, plan, virtualSeconds]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -205,23 +205,9 @@ export function VirtualPlayer({ plan }: VirtualPlayerProps) {
           ))}
         </div>
 
-        <label className="playback-timeline-control">
-          <span className="playback-timeline-row">
-            <span>Playback timeline</span>
-            <span>
-              {formatElapsed(rangeValue)} / {formatElapsed(durationSeconds)}
-            </span>
-          </span>
-          <input
-            aria-label="Playback timeline"
-            max={durationSeconds}
-            min={0}
-            onChange={(event) => moveToVirtualTime(Number(event.currentTarget.value))}
-            step={0.1}
-            type="range"
-            value={rangeValue}
-          />
-        </label>
+        <span className="wall-time-readout" aria-live="polite">
+          {formatWallTime(plan, virtualSeconds)}
+        </span>
       </div>
 
       {notice ? (

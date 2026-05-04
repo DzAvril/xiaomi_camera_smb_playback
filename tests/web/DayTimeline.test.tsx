@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TimelineSpan } from "../../src/shared/types";
@@ -83,5 +83,30 @@ describe("DayTimeline", () => {
       left: "0%",
       width: "100%",
     });
+  });
+
+  it("shows the precise hovered time and selects the clicked time from the track position", () => {
+    const date = "2026-05-04";
+    const onSelectTime = renderTimeline(date, [], null);
+    const track = screen.getByLabelText("Recorded spans");
+    track.getBoundingClientRect = () =>
+      ({
+        left: 20,
+        right: 220,
+        top: 0,
+        bottom: 42,
+        width: 200,
+        height: 42,
+        x: 20,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fireEvent.mouseMove(track, { clientX: 120 });
+    expect(screen.getByLabelText("Hovered time 12:00:00")).toHaveStyle({ left: "50%" });
+
+    fireEvent.click(track, { clientX: 170 });
+
+    expect(onSelectTime).toHaveBeenCalledWith(shanghaiTimestamp(date, "18:00:00"));
   });
 });

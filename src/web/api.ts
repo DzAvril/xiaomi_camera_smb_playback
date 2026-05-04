@@ -1,4 +1,4 @@
-import type { CameraStream, PlaybackPlan, TimelineSpan } from "../shared/types";
+import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../shared/types";
 
 type JsonBody = Record<string, unknown> | unknown[];
 
@@ -78,6 +78,10 @@ export const api = {
 
   getTimeline(cameraId: string, date: string): Promise<TimelineSpan[]> {
     return requestJson<TimelineSpan[]>(`/api/cameras/${encodePathPart(cameraId)}/timeline?date=${encodeQuery(date)}`);
+  },
+
+  getRecordedDays(cameraId: string): Promise<RecordingDay[]> {
+    return requestJson<RecordingDay[]>(`/api/cameras/${encodePathPart(cameraId)}/days`);
   },
 
   getPlaybackPlan(cameraId: string, start: string, end: string): Promise<PlaybackPlan> {

@@ -3,12 +3,13 @@ import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CameraStream, PlaybackPlan, TimelineSpan } from "../../src/shared/types";
+import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../../src/shared/types";
 import App from "../../src/web/App";
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn<(password: string) => Promise<void>>(),
   getPlaybackPlan: vi.fn<(cameraId: string, start: string, end: string) => Promise<PlaybackPlan>>(),
+  getRecordedDays: vi.fn<(cameraId: string) => Promise<RecordingDay[]>>(),
   getTimeline: vi.fn<(cameraId: string, date: string) => Promise<TimelineSpan[]>>(async () => []),
   listCameras: vi.fn<() => Promise<CameraStream[]>>(),
   refreshIndex: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("../../src/web/api", () => ({
   api: {
     createSession: mocks.createSession,
     getPlaybackPlan: mocks.getPlaybackPlan,
+    getRecordedDays: mocks.getRecordedDays,
     getTimeline: mocks.getTimeline,
     listCameras: mocks.listCameras,
     refreshIndex: mocks.refreshIndex,
@@ -33,6 +35,7 @@ describe("App", () => {
     vi.clearAllMocks();
     mocks.createSession.mockResolvedValue();
     mocks.getPlaybackPlan.mockResolvedValue(playbackPlan(shanghaiTimestamp("2026-05-04", "12:00:00")));
+    mocks.getRecordedDays.mockResolvedValue([{ date: "2026-05-04", totalBytes: 134217728, totalSeconds: 600 }]);
     mocks.getTimeline.mockResolvedValue([]);
     mocks.listCameras.mockResolvedValue([
       {
@@ -99,6 +102,11 @@ describe("App", () => {
     };
   }
 
+  async function expectPlaybackLoadedWithoutTimelineSlider() {
+    expect(await screen.findByRole("button", { name: "1x" })).toBeInTheDocument();
+    expect(screen.queryByRole("slider", { name: "Playback timeline" })).not.toBeInTheDocument();
+  }
+
   it("renders the selected camera and recording stats", async () => {
     render(<App />);
 
@@ -147,6 +155,15 @@ describe("App", () => {
     expect(within(cameraRow).getByText("1 day")).toBeInTheDocument();
     expect(within(cameraRow).getByText("10 min")).toBeInTheDocument();
     expect(within(cameraRow).getByText("128 MB")).toBeInTheDocument();
+  });
+
+  it("marks recorded days in the playback calendar for the selected camera", async () => {
+    render(<App />);
+
+    await waitFor(() => expect(mocks.getRecordedDays).toHaveBeenCalledWith("front-main"));
+    await userEvent.click(await screen.findByRole("button", { name: "Playback date 2026-05-04" }));
+
+    expect(screen.getByRole("button", { name: "2026-05-04 has recordings" })).toHaveClass("has-recordings");
   });
 
   it("keeps refresh available after camera loading fails", async () => {
@@ -210,9 +227,10 @@ describe("App", () => {
     const oldSpan = await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" });
     await userEvent.click(oldSpan);
     expect(screen.getByLabelText("Selected time 12:00")).toBeInTheDocument();
-    expect(await screen.findByRole("slider", { name: "Playback timeline" })).toBeInTheDocument();
+    await expectPlaybackLoadedWithoutTimelineSlider();
 
-    fireEvent.change(screen.getByLabelText("Playback date"), { target: { value: "2026-05-05" } });
+    await userEvent.click(screen.getByRole("button", { name: "Playback date 2026-05-04" }));
+    await userEvent.click(screen.getByRole("button", { name: "2026-05-05" }));
 
     await waitFor(() => expect(mocks.getTimeline).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("button", { name: "Recorded span 12:00 - 13:00" })).not.toBeInTheDocument();
@@ -293,7 +311,24 @@ describe("App", () => {
         "2026-05-04T04:30:00.000Z",
       ),
     );
-    expect(await screen.findByRole("slider", { name: "Playback timeline" })).toBeInTheDocument();
+    await expectPlaybackLoadedWithoutTimelineSlider();
+  });
+
+  it("moves the day timeline playhead as video playback advances", async () => {
+    mocks.getTimeline.mockImplementationOnce(async (_cameraId, timelineDate) => [
+      shanghaiSpan(timelineDate, "12:00:00", "13:00:00"),
+    ]);
+
+    const { container } = render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" }));
+    await expectPlaybackLoadedWithoutTimelineSlider();
+
+    const video = container.querySelector("video");
+    expect(video).toBeInstanceOf(HTMLVideoElement);
+    fireEvent.timeUpdate(video!, { target: { currentTime: 300 } });
+
+    expect(await screen.findByLabelText("Selected time 12:05")).toBeInTheDocument();
   });
 
   it("clears a loaded playback plan when the selected camera changes", async () => {
@@ -332,7 +367,7 @@ describe("App", () => {
     render(<App />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" }));
-    expect(await screen.findByRole("slider", { name: "Playback timeline" })).toBeInTheDocument();
+    await expectPlaybackLoadedWithoutTimelineSlider();
 
     await userEvent.click(await screen.findByRole("button", { name: /侧院主摄/ }));
 

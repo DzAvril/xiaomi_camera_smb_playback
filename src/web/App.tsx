@@ -1,7 +1,7 @@
 import { LockKeyhole, MonitorPlay } from "lucide-react";
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CameraStream, PlaybackPlan, TimelineSpan } from "../shared/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../shared/types";
 import { api } from "./api";
 import { CameraSidebar } from "./components/CameraSidebar";
 import { DayTimeline } from "./components/DayTimeline";
@@ -33,7 +33,9 @@ export default function App() {
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [date, setDate] = useState(todayInputValue);
   const [timeline, setTimeline] = useState<TimelineSpan[]>([]);
+  const [recordedDays, setRecordedDays] = useState<RecordingDay[]>([]);
   const [selectedAtMs, setSelectedAtMs] = useState<number | null>(null);
+  const [playheadAtMs, setPlayheadAtMs] = useState<number | null>(null);
   const [playbackPlan, setPlaybackPlan] = useState<PlaybackPlan | null>(null);
   const [isLoadingPlayback, setIsLoadingPlayback] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export default function App() {
   function resetPlaybackState() {
     playbackRequestId.current += 1;
     setSelectedAtMs(null);
+    setPlayheadAtMs(null);
     setPlaybackPlan(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
@@ -56,6 +59,7 @@ export default function App() {
     setCameras([]);
     setSelectedCameraId(null);
     setTimeline([]);
+    setRecordedDays([]);
     setIsLoadingTimeline(false);
     setIsRefreshing(false);
     setError(null);
@@ -129,11 +133,17 @@ export default function App() {
     () => cameras.find((camera) => camera.id === selectedCameraId) ?? null,
     [cameras, selectedCameraId],
   );
+  const recordedDates = useMemo(() => recordedDays.map((day) => day.date), [recordedDays]);
+  const timelinePlayheadAtMs = playheadAtMs ?? selectedAtMs;
+  const updatePlaybackWallTime = useCallback((timestampMs: number | null) => {
+    setPlayheadAtMs(timestampMs);
+  }, []);
 
   function selectCamera(cameraId: string) {
     playbackRequestId.current += 1;
     setSelectedCameraId(cameraId);
     setSelectedAtMs(null);
+    setPlayheadAtMs(null);
     setPlaybackPlan(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
@@ -143,6 +153,7 @@ export default function App() {
     playbackRequestId.current += 1;
     setDate(nextDate);
     setSelectedAtMs(null);
+    setPlayheadAtMs(null);
     setPlaybackPlan(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
@@ -152,7 +163,9 @@ export default function App() {
     if (!selectedCamera) {
       playbackRequestId.current += 1;
       setTimeline([]);
+      setRecordedDays([]);
       setSelectedAtMs(null);
+      setPlayheadAtMs(null);
       setPlaybackPlan(null);
       setPlaybackError(null);
       setIsLoadingPlayback(false);
@@ -168,6 +181,7 @@ export default function App() {
       setIsLoadingTimeline(true);
       setTimeline([]);
       setSelectedAtMs(null);
+      setPlayheadAtMs(null);
       setPlaybackPlan(null);
       setPlaybackError(null);
       setIsLoadingPlayback(false);
@@ -204,6 +218,42 @@ export default function App() {
     };
   }, [date, selectedCamera]);
 
+  useEffect(() => {
+    if (!selectedCamera) {
+      setRecordedDays([]);
+      return;
+    }
+
+    let cancelled = false;
+    const cameraId = selectedCamera.id;
+
+    async function loadRecordedDays() {
+      try {
+        const nextRecordedDays = await api.getRecordedDays(cameraId);
+        if (!cancelled) {
+          setRecordedDays(nextRecordedDays);
+        }
+      } catch (loadError) {
+        if (cancelled) {
+          return;
+        }
+
+        setRecordedDays([]);
+        if (isUnauthorizedError(loadError)) {
+          requireSignIn();
+        } else {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load recorded days");
+        }
+      }
+    }
+
+    void loadRecordedDays();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCamera]);
+
   async function selectTime(timestampMs: number) {
     if (!selectedCamera) {
       return;
@@ -216,6 +266,7 @@ export default function App() {
     const end = new Date(timestampMs + PLAYBACK_WINDOW_MS).toISOString();
 
     setSelectedAtMs(timestampMs);
+    setPlayheadAtMs(timestampMs);
     setPlaybackPlan(null);
     setPlaybackError(null);
     setIsLoadingPlayback(true);
@@ -243,6 +294,7 @@ export default function App() {
   async function refreshIndex() {
     playbackRequestId.current += 1;
     setSelectedAtMs(null);
+    setPlayheadAtMs(null);
     setPlaybackPlan(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
@@ -330,6 +382,7 @@ export default function App() {
             isRefreshing={isRefreshing}
             onDateChange={changeDate}
             onRefresh={refreshIndex}
+            recordedDates={recordedDates}
           />
         </header>
 
@@ -337,7 +390,7 @@ export default function App() {
         {playbackError ? <div className="status-banner">{playbackError}</div> : null}
 
         {playbackPlan ? (
-          <VirtualPlayer plan={playbackPlan} />
+          <VirtualPlayer onWallTimeChange={updatePlaybackWallTime} plan={playbackPlan} />
         ) : (
           <section className="video-placeholder" aria-busy={isLoadingPlayback} aria-label="Video player placeholder">
             <MonitorPlay aria-hidden="true" size={42} />
@@ -357,7 +410,7 @@ export default function App() {
         )}
 
         <div className="day-timeline-region" aria-busy={isLoadingTimeline}>
-          <DayTimeline date={date} spans={timeline} selectedAtMs={selectedAtMs} onSelectTime={selectTime} />
+          <DayTimeline date={date} spans={timeline} selectedAtMs={timelinePlayheadAtMs} onSelectTime={selectTime} />
         </div>
       </main>
     </div>

@@ -6,17 +6,16 @@ LAN playback for Xiaomi camera MP4 recordings. The server indexes filenames into
 
 ```bash
 npm install
-cp config/cameras.example.yaml config/cameras.yaml
-APP_PASSWORD=dev-password CAMERA_CONFIG_PATH=config/cameras.yaml DATA_DIR=app-data TZ=Asia/Shanghai npm run dev
+APP_PASSWORD=dev-password DATA_DIR=app-data RECORDINGS_DIR=/path/to/recordings TZ=Asia/Shanghai npm run dev
 ```
 
-Open `http://localhost:8080` and sign in with `APP_PASSWORD`. API routes require a session cookie except `GET /api/health` and `POST /api/session`.
+Open `http://localhost:8080` and sign in with `APP_PASSWORD`. When `CAMERA_CONFIG_PATH` is not set, the app discovers Xiaomi MP4 folders under `RECORDINGS_DIR` and writes the editable camera config to `DATA_DIR/cameras.yaml`.
 
 Build and run production output locally:
 
 ```bash
 npm run build
-APP_PASSWORD=dev-password CAMERA_CONFIG_PATH=config/cameras.yaml DATA_DIR=app-data node dist-server/server/main.js
+APP_PASSWORD=dev-password DATA_DIR=app-data RECORDINGS_DIR=/path/to/recordings node dist-server/server/main.js
 ```
 
 ## Fixture Smoke Test
@@ -34,29 +33,29 @@ touch tests/fixtures/recordings/xiaomi_camera_videos/B888809544F6/10_20260504110
 Run the app against the fixture config:
 
 ```bash
-APP_PASSWORD=dev CAMERA_CONFIG_PATH=tests/fixtures/cameras.fixture.yaml DATA_DIR=app-data npm run dev
+APP_PASSWORD=dev DATA_DIR=app-data RECORDINGS_DIR=tests/fixtures/recordings npm run dev
 ```
 
 Open `http://localhost:8080` and log in with password `dev`.
 
 Smoke checklist:
 
-- Refresh the index and confirm three camera streams appear: `前院主摄`, `双摄 A`, and `双摄 B`.
+- Refresh the index and confirm three camera streams appear for the single-camera and dual-camera fixture folders.
 - Confirm timeline spans are shown for the placeholder file windows.
 - Request a playback plan from a visible timeline span.
-- Move the playback slider and confirm the current time updates.
+- Play or seek the video and confirm the Day timeline playhead follows the current time.
 - Try the playback speed controls.
 - Check the layout at a mobile viewport width.
 
 ## Docker / NAS Deployment
 
-Edit `docker-compose.example.yml`, set a strong `APP_PASSWORD`, and make sure camera paths in `config/cameras.example.yaml` match the container path `/recordings`.
+Edit `docker-compose.example.yml`, set a strong `APP_PASSWORD`, and mount one or more recording directories under `/recordings`.
 
 ```bash
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The example publishes `http://<nas-ip>:8088`, stores SQLite state in `./app-data`, mounts recordings read-only from `/tmp/zfsv3/sata14/15216702047/data` to `/recordings`, and uses `TZ=Asia/Shanghai`.
+The example publishes `http://<nas-ip>:8088`, stores SQLite state and the generated camera config in `./app-data`, mounts recordings read-only from `/tmp/zfsv3/sata14/15216702047/data` to `/recordings`, and uses `TZ=Asia/Shanghai`.
 
 ## GitHub Actions Image Publish
 
@@ -79,6 +78,8 @@ Configure optional Telegram secrets or variables to receive build success notifi
 When Telegram settings are present, the workflow sends a success notification with the image tag, commit, run URL, and recent changelog.
 
 ## Camera Config
+
+By default the container generates and updates `DATA_DIR/cameras.yaml` from mounted recording folders. Existing aliases in that internal config are preserved, and newly mounted camera folders are appended on restart. Set `CAMERA_CONFIG_PATH` only if you want to provide a fixed YAML file yourself.
 
 Single-camera root:
 
