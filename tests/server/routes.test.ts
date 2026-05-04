@@ -2,10 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import { describe, expect, it } from "vitest";
 import { endOfLocalDay, startOfLocalDay } from "../../src/shared/time";
 import { createApp } from "../../src/server/app";
 import type { AppConfig } from "../../src/server/config";
+import { openCatalog } from "../../src/server/db";
+import { registerRoutes } from "../../src/server/routes";
 
 const PASSWORD = "correct horse battery staple";
 
@@ -168,6 +171,32 @@ describe("playback API routes", () => {
         }),
       );
     });
+  });
+
+  it("returns stable 500 JSON when refreshing the index fails", async () => {
+    const dir = createTempDir();
+    const app = Fastify({ logger: false });
+    const catalog = openCatalog(path.join(dir, "catalog.sqlite"));
+    app.decorate("catalog", catalog);
+
+    registerRoutes(app, createTestConfig(dir, path.join(dir, "recordings")), {
+      scanRecordings: () => {
+        throw new Error("boom");
+      },
+    });
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/index/refresh",
+      });
+
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({ error: "Failed to refresh index" });
+    } finally {
+      await app.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("updates camera alias and enabled fields while preserving omitted values", async () => {

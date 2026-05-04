@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { endOfLocalDay, startOfLocalDay } from "../shared/time";
 import type { AppConfig } from "./config";
-import { scanRecordings } from "./indexer";
+import { scanRecordings, type ScanResult } from "./indexer";
 import { buildPlaybackPlan } from "./playbackPlan";
 import { streamClipFile } from "./streaming";
 import { buildDayTimeline, listRecordedDays } from "./timeline";
@@ -26,6 +26,10 @@ type PlanQuery = {
 type CameraPatchBody = {
   alias?: unknown;
   enabled?: unknown;
+};
+
+type RouteDependencies = {
+  scanRecordings: typeof scanRecordings;
 };
 
 const EXPLICIT_TIME_ZONE = /(?:Z|[+-]\d{2}:\d{2})$/;
@@ -173,8 +177,19 @@ function isCameraPatchBody(value: unknown): value is CameraPatchBody {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function registerRoutes(app: FastifyInstance, config: AppConfig): void {
-  app.post("/api/index/refresh", async () => scanRecordings(app.catalog, config.roots));
+export function registerRoutes(
+  app: FastifyInstance,
+  config: AppConfig,
+  dependencies: RouteDependencies = { scanRecordings },
+): void {
+  app.post("/api/index/refresh", async (_request, reply): Promise<ScanResult | FastifyReply> => {
+    try {
+      return dependencies.scanRecordings(app.catalog, config.roots);
+    } catch (scanError) {
+      app.log.error({ error: scanError }, "failed to refresh recording index");
+      return reply.code(500).send(error("Failed to refresh index"));
+    }
+  });
 
   app.get("/api/cameras", async () => app.catalog.listCameras());
 

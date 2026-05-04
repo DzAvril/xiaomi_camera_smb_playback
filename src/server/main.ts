@@ -7,7 +7,11 @@ const config = loadConfig();
 mkdirSync(config.dataDir, { recursive: true });
 
 const app = createApp(config);
-scanRecordings(app.catalog, config.roots);
+try {
+  scanRecordings(app.catalog, config.roots);
+} catch (error) {
+  app.log.error({ error }, "failed to refresh recording index");
+}
 
 const scanInterval = setInterval(() => {
   try {
