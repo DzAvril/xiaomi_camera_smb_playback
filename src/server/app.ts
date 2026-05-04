@@ -8,6 +8,7 @@ import {
 } from "./auth";
 import type { AppConfig } from "./config";
 import { openCatalog } from "./db";
+import { registerRoutes } from "./routes";
 
 type SessionBody = {
   password?: unknown;
@@ -66,7 +67,7 @@ export function createApp(config: AppConfig): FastifyInstance {
       .send();
   });
 
-  app.get("/api/cameras", async () => app.catalog.listCameras());
+  registerRoutes(app, config);
 
   return app;
 }
