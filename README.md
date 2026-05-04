@@ -36,6 +36,35 @@ npm run build
 APP_PASSWORD=dev-password CAMERA_CONFIG_PATH=config/cameras.yaml DATA_DIR=app-data node dist-server/server/main.js
 ```
 
+## Fixture Smoke Test
+
+The repository includes a small fixture camera config for local smoke checks. Create MP4-named placeholder files before starting the app; zero-byte placeholders are enough to exercise indexing, timelines, and plan APIs, while real MP4 content is required for browser video decoding.
+
+```bash
+mkdir -p tests/fixtures/recordings/XiaomiCamera_00_B888808A681C
+mkdir -p tests/fixtures/recordings/xiaomi_camera_videos/B888809544F6
+touch tests/fixtures/recordings/XiaomiCamera_00_B888808A681C/00_20260504110024_20260504111027.mp4
+touch tests/fixtures/recordings/xiaomi_camera_videos/B888809544F6/00_20260504110500_20260504111500.mp4
+touch tests/fixtures/recordings/xiaomi_camera_videos/B888809544F6/10_20260504110600_20260504111600.mp4
+```
+
+Run the app against the fixture config:
+
+```bash
+APP_PASSWORD=dev CAMERA_CONFIG_PATH=tests/fixtures/cameras.fixture.yaml DATA_DIR=app-data npm run dev
+```
+
+Open `http://localhost:8080`. Log in with password `dev` when the login form is available; until that follow-up lands, create the session through `POST /api/session` or the browser console snippet above with password `dev`.
+
+Smoke checklist:
+
+- Refresh the index and confirm three camera streams appear: `前院主摄`, `双摄 A`, and `双摄 B`.
+- Confirm timeline spans are shown for the placeholder file windows.
+- Request a playback plan from a visible timeline span.
+- Move the playback slider and confirm the current time updates.
+- Try the playback speed controls.
+- Check the layout at a mobile viewport width.
+
 ## Docker / NAS Deployment
 
 Edit `docker-compose.example.yml`, set a strong `APP_PASSWORD`, and make sure camera paths in `config/cameras.example.yaml` match the container path `/recordings`.

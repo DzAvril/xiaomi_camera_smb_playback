@@ -1,0 +1,13 @@
+recordingRoots:
+  - id: b888808a681c
+    path: tests/fixtures/recordings/XiaomiCamera_00_B888808A681C
+    streams:
+      - channel: "00"
+        alias: "前院主摄"
+  - id: b888809544f6
+    path: tests/fixtures/recordings/xiaomi_camera_videos/B888809544F6
+    streams:
+      - channel: "00"
+        alias: "双摄 A"
+      - channel: "10"
+        alias: "双摄 B"
