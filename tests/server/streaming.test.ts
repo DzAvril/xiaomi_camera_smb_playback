@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
@@ -44,6 +44,18 @@ describe("resolveClipPath", () => {
     expect(() => resolveClipPath(root, path.join(path.dirname(root), "secret.mp4"))).toThrow(
       "Clip path escapes recording root",
     );
+  });
+
+  it("rejects symlinked clip paths that resolve outside the recording root", () => {
+    const dir = createTempDir();
+    const root = path.join(dir, "recordings");
+    const outside = path.join(dir, "secret.mp4");
+    const link = path.join(root, "link.mp4");
+    mkdirSync(root);
+    writeFileSync(outside, Buffer.from("secret"));
+    symlinkSync(outside, link);
+
+    expect(() => resolveClipPath(root, "link.mp4")).toThrow("Clip path escapes recording root");
   });
 });
 
@@ -158,6 +170,45 @@ describe("streamClipFile", () => {
       expect(response.headers["content-length"]).toBe("3");
       expect(response.headers["content-range"]).toBe("bytes 7-9/10");
       expect(response.body).toBe("789");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 416 for syntactically valid ranges that cannot be satisfied", async () => {
+    const root = createTempDir();
+    const file = path.join(root, "clip.mp4");
+    writeFileSync(file, Buffer.from("0123456789"));
+
+    const app = Fastify();
+    app.get("/clip", (request, reply) => streamClipFile(request, reply, clip(root, "clip.mp4", 10)));
+
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/clip",
+        headers: { range: "bytes=10-12" },
+      });
+
+      expect(response.statusCode).toBe(416);
+      expect(response.headers["accept-ranges"]).toBe("bytes");
+      expect(response.headers["content-range"]).toBe("bytes */10");
+      expect(response.body).toBe("");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 404 when the indexed clip file is missing", async () => {
+    const root = createTempDir();
+
+    const app = Fastify();
+    app.get("/clip", (request, reply) => streamClipFile(request, reply, clip(root, "missing.mp4", 10)));
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/clip" });
+
+      expect(response.statusCode).toBe(404);
     } finally {
       await app.close();
     }
