@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { createApp } from "./app";
 import { loadConfig } from "./config";
 import { scanRecordings } from "./indexer";
+import { registerShutdownHandlers } from "./shutdown";
 
 const config = loadConfig();
 mkdirSync(config.dataDir, { recursive: true });
@@ -25,6 +26,7 @@ scanInterval.unref();
 app.addHook("onClose", () => {
   clearInterval(scanInterval);
 });
+registerShutdownHandlers(app);
 
 const port = Number(process.env.PORT ?? "8080");
 const host = process.env.HOST ?? "0.0.0.0";
