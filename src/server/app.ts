@@ -2,9 +2,9 @@ import cookie from "@fastify/cookie";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   constantTimePasswordEquals,
-  createSessionToken,
-  isValidSessionToken,
+  createSessionStore,
   SESSION_COOKIE_NAME,
+  SESSION_TTL_SECONDS,
 } from "./auth";
 import type { AppConfig } from "./config";
 import { openCatalog } from "./db";
@@ -22,6 +22,7 @@ function unauthorized() {
 export function createApp(config: AppConfig): FastifyInstance {
   const app = Fastify();
   const catalog = openCatalog(config.databasePath);
+  const sessions = createSessionStore();
 
   app.decorate("catalog", catalog);
   app.register(cookie);
@@ -32,8 +33,9 @@ export function createApp(config: AppConfig): FastifyInstance {
       return;
     }
 
-    if (!isValidSessionToken(request.cookies[SESSION_COOKIE_NAME], config.password)) {
+    if (!sessions.isValid(request.cookies[SESSION_COOKIE_NAME])) {
       await reply.code(401).send(unauthorized());
+      return reply;
     }
   });
 
@@ -51,9 +53,12 @@ export function createApp(config: AppConfig): FastifyInstance {
       return reply.code(401).send(unauthorized());
     }
 
+    const session = sessions.create();
+
     return reply
-      .setCookie(SESSION_COOKIE_NAME, createSessionToken(config.password), {
+      .setCookie(SESSION_COOKIE_NAME, session.token, {
         httpOnly: true,
+        maxAge: SESSION_TTL_SECONDS,
         path: "/",
         sameSite: "strict",
       })
