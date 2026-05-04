@@ -80,7 +80,7 @@ The example publishes `http://<nas-ip>:8088`, stores SQLite state in `./app-data
 Pushing image-related changes to `main`, pushing a tag like `v0.1.0`, or manually running `Docker Publish` builds and pushes a multi-arch Docker image to Docker Hub:
 
 ```text
-dzavril/xiaomi-camera-smb-playback
+${DOCKERHUB_USERNAME}/xiaomi-camera-smb-playback
 ```
 
 Configure the `BuildImage` environment, repository secrets, or repository variables with Docker Hub credentials:
