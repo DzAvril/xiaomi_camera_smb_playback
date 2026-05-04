@@ -91,7 +91,11 @@ export function streamClipFile(request: FastifyRequest, reply: FastifyReply, cli
 
   try {
     filePath = resolveClipPath(clip.rootPath, clip.relativePath);
-    sizeBytes = statSync(filePath).size;
+    const stats = statSync(filePath);
+    if (!stats.isFile()) {
+      return reply.code(404).send();
+    }
+    sizeBytes = stats.size;
   } catch (error) {
     if (error instanceof Error && error.message === ESCAPE_ERROR) {
       return reply.code(403).send();

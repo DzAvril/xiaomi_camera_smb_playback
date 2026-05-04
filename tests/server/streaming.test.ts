@@ -240,4 +240,22 @@ describe("streamClipFile", () => {
       await app.close();
     }
   });
+
+  it("returns 404 when the indexed clip path is a directory", async () => {
+    const root = createTempDir();
+    mkdirSync(path.join(root, "clip.mp4"));
+
+    const app = Fastify();
+    app.get("/clip", (request, reply) => streamClipFile(request, reply, clip(root, "clip.mp4", 10)));
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/clip" });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.headers["accept-ranges"]).toBeUndefined();
+      expect(response.headers["content-type"]).not.toBe("video/mp4");
+    } finally {
+      await app.close();
+    }
+  });
 });
