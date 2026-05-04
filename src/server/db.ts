@@ -67,6 +67,7 @@ export function openCatalog(databasePath: string) {
 
     CREATE INDEX IF NOT EXISTS idx_clips_camera_start ON clips(camera_id, start_at_ms);
     CREATE INDEX IF NOT EXISTS idx_clips_camera_end ON clips(camera_id, end_at_ms);
+    CREATE INDEX IF NOT EXISTS idx_clips_camera_end_start ON clips(camera_id, end_at_ms, start_at_ms);
   `);
   db.exec("CREATE TEMP TABLE IF NOT EXISTS seen_clip_ids (id TEXT PRIMARY KEY)");
 
@@ -193,7 +194,7 @@ export function openCatalog(databasePath: string) {
       const rows = db
         .prepare(
           `
-          SELECT * FROM clips
+          SELECT * FROM clips INDEXED BY idx_clips_camera_end_start
           WHERE camera_id = ?
             AND end_at_ms > ?
             AND start_at_ms < ?
