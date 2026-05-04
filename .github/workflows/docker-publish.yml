@@ -1,0 +1,158 @@
+name: Docker Publish
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IMAGE_REPOSITORY: xiaomi-camera-smb-playback
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_USERNAME || vars.DOCKERHUB_USERNAME }}
+  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' && secrets.DOCKERHUB_TOKEN || vars.DOCKERHUB_TOKEN }}
+  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN != '' && secrets.TELEGRAM_BOT_TOKEN || vars.TELEGRAM_BOT_TOKEN }}
+  TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID != '' && secrets.TELEGRAM_CHAT_ID || vars.TELEGRAM_CHAT_ID }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate publish credentials
+        shell: bash
+        run: |
+          if [ -z "$DOCKERHUB_USERNAME" ] || [ -z "$DOCKERHUB_TOKEN" ]; then
+            echo "Set DOCKERHUB_USERNAME and DOCKERHUB_TOKEN as repository secrets or variables." >&2
+            exit 1
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Resolve app version
+        id: appver
+        shell: bash
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ -z "$version" ]; then
+            echo "package.json version is empty" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_REPOSITORY }}
+          tags: |
+            type=raw,value=v${{ steps.appver.outputs.version }}
+            type=raw,value=${{ steps.appver.outputs.version }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha
+            type=ref,event=tag
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Resolve previous successful build sha
+        id: range
+        uses: actions/github-script@v7
+        env:
+          WORKFLOW_PATH: .github/workflows/docker-publish.yml
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const currentRunId = Number(context.runId);
+            const branch = context.ref.startsWith("refs/heads/") ? context.ref.replace("refs/heads/", "") : undefined;
+            const workflowPath = process.env.WORKFLOW_PATH;
+
+            const runs = await github.rest.actions.listWorkflowRunsForRepo({
+              owner,
+              repo,
+              branch,
+              status: "completed",
+              per_page: 100
+            });
+
+            const previous = runs.data.workflow_runs.find((run) =>
+              run.id !== currentRunId &&
+              run.conclusion === "success" &&
+              run.path === workflowPath
+            );
+
+            if (previous?.head_sha) {
+              core.setOutput("base_sha", previous.head_sha);
+            }
+
+      - name: Collect changelog
+        id: changelog
+        shell: bash
+        run: |
+          base_sha="${{ steps.range.outputs.base_sha }}"
+          before="${{ github.event.before }}"
+          if [ -n "$base_sha" ]; then
+            logs=$(git log --no-merges --pretty=format:'- %h %s' "$base_sha..${{ github.sha }}" | head -n 30)
+          elif [ -n "$before" ] && [ "$before" != "0000000000000000000000000000000000000000" ]; then
+            logs=$(git log --no-merges --pretty=format:'- %h %s' "$before..${{ github.sha }}" | head -n 30)
+          else
+            logs=$(git log --no-merges --pretty=format:'- %h %s' -n 30)
+          fi
+
+          if [ -z "$logs" ]; then
+            logs="- (no commit summary available)"
+          fi
+
+          {
+            echo "value<<EOF"
+            echo "$logs"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram
+        if: ${{ success() && env.TELEGRAM_BOT_TOKEN != '' && env.TELEGRAM_CHAT_ID != '' }}
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          CHANGELOG: ${{ steps.changelog.outputs.value }}
+        shell: bash
+        run: |
+          first_tag=$(printf "%s\n" "$IMAGE_TAGS" | head -n 1)
+          message=$(printf "Xiaomi Camera SMB Playback 镜像已更新\n仓库: %s\n分支/标签: %s\n镜像: %s\n提交人: %s\n提交: %s\n运行: %s\n\n更新内容:\n%s" \
+            "${{ github.repository }}" \
+            "${{ github.ref_name }}" \
+            "$first_tag" \
+            "${{ github.actor }}" \
+            "${{ github.sha }}" \
+            "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "$CHANGELOG")
+
+          curl -sS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${message}" \
+            --data-urlencode "disable_web_page_preview=true"

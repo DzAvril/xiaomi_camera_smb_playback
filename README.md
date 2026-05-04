@@ -75,6 +75,23 @@ docker compose -f docker-compose.example.yml up -d --build
 
 The example publishes `http://<nas-ip>:8088`, stores SQLite state in `./app-data`, mounts recordings read-only from `/tmp/zfsv3/sata14/15216702047/data` to `/recordings`, and uses `TZ=Asia/Shanghai`.
 
+## GitHub Actions Image Publish
+
+Pushing to `main`, pushing a tag like `v0.1.0`, or manually running `Docker Publish` builds and pushes a multi-arch Docker image to Docker Hub:
+
+```text
+<DOCKERHUB_USERNAME>/xiaomi-camera-smb-playback
+```
+
+Configure these repository secrets or variables before the first run:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN`
+- `TELEGRAM_BOT_TOKEN` (optional)
+- `TELEGRAM_CHAT_ID` (optional)
+
+When Telegram settings are present, the workflow sends a success notification with the image tag, commit, run URL, and recent changelog.
+
 ## Camera Config
 
 Single-camera root:
