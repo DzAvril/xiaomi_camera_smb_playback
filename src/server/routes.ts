@@ -29,6 +29,8 @@ type CameraPatchBody = {
 };
 
 const EXPLICIT_TIME_ZONE = /(?:Z|[+-]\d{2}:\d{2})$/;
+const EXPLICIT_DATETIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?(Z|[+-]\d{2}:\d{2})$/;
 const SHANGHAI_LOCAL_DATETIME =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
 const SHANGHAI_OFFSET_HOURS = 8;
@@ -60,8 +62,7 @@ function parseTimestampQuery(value: unknown): number | null {
   }
 
   if (EXPLICIT_TIME_ZONE.test(value)) {
-    const timestampMs = Date.parse(value);
-    return Number.isFinite(timestampMs) ? timestampMs : null;
+    return parseExplicitTimestamp(value);
   }
 
   const match = SHANGHAI_LOCAL_DATETIME.exec(value);
@@ -94,6 +95,74 @@ function parseTimestampQuery(value: unknown): number | null {
   }
 
   return timestampMs;
+}
+
+function parseExplicitTimestamp(value: string): number | null {
+  const match = EXPLICIT_DATETIME.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const [
+    ,
+    yearText,
+    monthText,
+    dayText,
+    hourText,
+    minuteText,
+    secondText = "0",
+    millisecondText = "0",
+    offsetText,
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const millisecond = Number(millisecondText.padEnd(3, "0"));
+  const offsetMs = parseOffsetMs(offsetText);
+  if (offsetMs === null) {
+    return null;
+  }
+
+  const timestampMs = Date.UTC(year, month - 1, day, hour, minute, second, millisecond) - offsetMs;
+  const roundTrip = new Date(timestampMs + offsetMs);
+
+  if (
+    roundTrip.getUTCFullYear() !== year ||
+    roundTrip.getUTCMonth() !== month - 1 ||
+    roundTrip.getUTCDate() !== day ||
+    roundTrip.getUTCHours() !== hour ||
+    roundTrip.getUTCMinutes() !== minute ||
+    roundTrip.getUTCSeconds() !== second ||
+    roundTrip.getUTCMilliseconds() !== millisecond
+  ) {
+    return null;
+  }
+
+  return timestampMs;
+}
+
+function parseOffsetMs(offsetText: string): number | null {
+  if (offsetText === "Z") {
+    return 0;
+  }
+
+  const match = /^([+-])(\d{2}):(\d{2})$/.exec(offsetText);
+  if (!match) {
+    return null;
+  }
+
+  const [, sign, hoursText, minutesText] = match;
+  const hours = Number(hoursText);
+  const minutes = Number(minutesText);
+  if (hours > 23 || minutes > 59) {
+    return null;
+  }
+
+  const direction = sign === "+" ? 1 : -1;
+  return direction * (hours * 60 + minutes) * 60 * 1000;
 }
 
 function listAllCameraClips(app: FastifyInstance, cameraId: string) {

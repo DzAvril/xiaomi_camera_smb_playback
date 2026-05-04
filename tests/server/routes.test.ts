@@ -278,6 +278,49 @@ describe("playback API routes", () => {
       });
       expect(malformed.statusCode).toBe(400);
       expect(malformed.json()).toEqual({ error: "Invalid plan range" });
+
+      const impossibleUtcDate = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/plan?start=2026-02-31T00:00:00Z&end=2026-05-04T03:10:00Z`,
+        cookies,
+      });
+      expect(impossibleUtcDate.statusCode).toBe(400);
+      expect(impossibleUtcDate.json()).toEqual({ error: "Invalid plan range" });
+
+      const impossibleOffsetDate = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/plan?start=2026-02-31T00:00:00%2B08:00&end=2026-05-04T11:10:00%2B08:00`,
+        cookies,
+      });
+      expect(impossibleOffsetDate.statusCode).toBe(400);
+      expect(impossibleOffsetDate.json()).toEqual({ error: "Invalid plan range" });
+    });
+  });
+
+  it("parses explicit offset plan timestamps as absolute instants", async () => {
+    await withIndexedFixture(async ({ app, cookies }) => {
+      const cameraId = app.catalog.listCameras()[0].id;
+
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/plan?start=2026-05-04T11:00:00%2B08:00&end=2026-05-04T11:10:00%2B08:00`,
+        cookies,
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(
+        expect.objectContaining({
+          playableSeconds: 600,
+          segments: [
+            expect.objectContaining({
+              playableSeconds: 600,
+              virtualStartSeconds: 0,
+              virtualEndSeconds: 600,
+            }),
+          ],
+          gaps: [],
+        }),
+      );
     });
   });
 
