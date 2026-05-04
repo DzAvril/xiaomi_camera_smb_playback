@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { TimelineSpan } from "../../src/shared/types";
@@ -21,7 +21,9 @@ describe("DayTimeline", () => {
 
     render(<DayTimeline date={date} spans={[span]} selectedAtMs={localTimestamp(date, "12:30:00")} onSelectTime={onSelectTime} />);
 
-    const spanButton = screen.getByRole("button", { name: "12:00 - 13:00" });
+    const spanButton = screen.getByRole("button", { name: "Recorded span 12:00 - 13:00" });
+    expect(spanButton).toHaveAttribute("title", "12:00 - 13:00");
+    expect(within(spanButton).getByText("12:00 - 13:00")).toHaveClass("visually-hidden");
     expect(spanButton).toHaveStyle({ left: "50%", width: "4.166667%" });
     expect(screen.getByText("00:00")).toBeInTheDocument();
     expect(screen.getByText("06:00")).toBeInTheDocument();

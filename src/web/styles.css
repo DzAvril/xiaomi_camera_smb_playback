@@ -178,6 +178,16 @@ input:disabled {
   font-size: 13px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .playback-panel {
   display: flex;
   flex-direction: column;
@@ -325,19 +335,11 @@ input:disabled {
   position: absolute;
   top: 0;
   bottom: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   min-width: 3px;
-  overflow: hidden;
   border: 0;
   border-radius: 0;
   background: #4e9f70;
-  color: #ffffff;
-  font-size: 11px;
-  font-weight: 750;
-  line-height: 1;
-  padding: 0 5px;
+  padding: 0;
 }
 
 .day-timeline-span:hover {
@@ -348,12 +350,6 @@ input:disabled {
   z-index: 2;
   outline: 2px solid #1d242d;
   outline-offset: -2px;
-}
-
-.day-timeline-span span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .day-timeline-playhead {

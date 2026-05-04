@@ -80,14 +80,15 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
             return (
               <button
-                aria-label={label}
+                aria-label={`Recorded span ${label}`}
                 className="day-timeline-span"
                 key={`${span.startAtMs}-${span.endAtMs}`}
                 onClick={() => onSelectTime(span.startAtMs)}
                 style={{ left: `${formatPercent(left)}%`, width: `${formatPercent(width)}%` }}
+                title={label}
                 type="button"
               >
-                <span>{label}</span>
+                <span className="visually-hidden">{label}</span>
               </button>
             );
           })
