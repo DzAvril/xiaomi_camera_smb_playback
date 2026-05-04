@@ -6,6 +6,7 @@ const CONTINUITY_THRESHOLD_MS = 1000;
 export type RecordedDay = {
   date: string;
   totalSeconds: number;
+  /** File-inventory bytes for clips whose start time falls on this Shanghai date. */
   totalBytes: number;
 };
 
@@ -43,12 +44,38 @@ export function buildDayTimeline(clips: ClipRecord[], dateText: string): Timelin
 
 export function listRecordedDays(clips: ClipRecord[]): RecordedDay[] {
   const byDate = new Map<string, RecordedDay>();
+  const coverageClipsByDate = new Map<string, ClipRecord[]>();
 
   for (const clip of clips) {
-    const date = formatLocalDate(clip.startAtMs);
-    const existing = byDate.get(date) ?? { date, totalSeconds: 0, totalBytes: 0 };
-    existing.totalSeconds += clip.durationSeconds;
+    const startDate = formatLocalDate(clip.startAtMs);
+    const existing = byDate.get(startDate) ?? { date: startDate, totalSeconds: 0, totalBytes: 0 };
     existing.totalBytes += clip.sizeBytes;
+    byDate.set(startDate, existing);
+
+    let date = startDate;
+    let dayStart = startOfLocalDay(date);
+
+    while (dayStart < clip.endAtMs) {
+      const dayEnd = endOfLocalDay(date);
+
+      if (clip.endAtMs > dayStart && clip.startAtMs < dayEnd) {
+        const dayClips = coverageClipsByDate.get(date) ?? [];
+        dayClips.push(clip);
+        coverageClipsByDate.set(date, dayClips);
+        byDate.set(date, byDate.get(date) ?? { date, totalSeconds: 0, totalBytes: 0 });
+      }
+
+      date = formatLocalDate(dayEnd);
+      dayStart = dayEnd;
+    }
+  }
+
+  for (const [date, dateClips] of coverageClipsByDate) {
+    const existing = byDate.get(date) ?? { date, totalSeconds: 0, totalBytes: 0 };
+    existing.totalSeconds = buildDayTimeline(dateClips, date).reduce(
+      (total, span) => total + span.durationSeconds,
+      0,
+    );
     byDate.set(date, existing);
   }
 
