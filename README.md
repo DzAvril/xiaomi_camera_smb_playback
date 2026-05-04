@@ -10,24 +10,7 @@ cp config/cameras.example.yaml config/cameras.yaml
 APP_PASSWORD=dev-password CAMERA_CONFIG_PATH=config/cameras.yaml DATA_DIR=app-data TZ=Asia/Shanghai npm run dev
 ```
 
-Open `http://localhost:8080`. API routes require a session cookie except `GET /api/health` and `POST /api/session`. The current frontend does not include a login form yet; create a session through the API before using protected calls.
-
-```bash
-curl -i -c cookies.txt \
-  -H "content-type: application/json" \
-  -d '{"password":"dev-password"}' \
-  http://localhost:8080/api/session
-```
-
-From the browser console on the same origin:
-
-```js
-await fetch("/api/session", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ password: "dev-password" }),
-});
-```
+Open `http://localhost:8080` and sign in with `APP_PASSWORD`. API routes require a session cookie except `GET /api/health` and `POST /api/session`.
 
 Build and run production output locally:
 
@@ -54,7 +37,7 @@ Run the app against the fixture config:
 APP_PASSWORD=dev CAMERA_CONFIG_PATH=tests/fixtures/cameras.fixture.yaml DATA_DIR=app-data npm run dev
 ```
 
-Open `http://localhost:8080`. Log in with password `dev` when the login form is available; until that follow-up lands, create the session through `POST /api/session` or the browser console snippet above with password `dev`.
+Open `http://localhost:8080` and log in with password `dev`.
 
 Smoke checklist:
 

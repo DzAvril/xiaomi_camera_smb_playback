@@ -7,6 +7,7 @@ import type { CameraStream, PlaybackPlan, TimelineSpan } from "../../src/shared/
 import App from "../../src/web/App";
 
 const mocks = vi.hoisted(() => ({
+  createSession: vi.fn<(password: string) => Promise<void>>(),
   getPlaybackPlan: vi.fn<(cameraId: string, start: string, end: string) => Promise<PlaybackPlan>>(),
   getTimeline: vi.fn<(cameraId: string, date: string) => Promise<TimelineSpan[]>>(async () => []),
   listCameras: vi.fn<() => Promise<CameraStream[]>>(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../src/web/api", () => ({
   api: {
+    createSession: mocks.createSession,
     getPlaybackPlan: mocks.getPlaybackPlan,
     getTimeline: mocks.getTimeline,
     listCameras: mocks.listCameras,
@@ -29,6 +31,7 @@ describe("App", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createSession.mockResolvedValue();
     mocks.getPlaybackPlan.mockResolvedValue(playbackPlan(shanghaiTimestamp("2026-05-04", "12:00:00")));
     mocks.getTimeline.mockResolvedValue([]);
     mocks.listCameras.mockResolvedValue([
@@ -103,6 +106,37 @@ describe("App", () => {
     expect(screen.getAllByText("1 day")).not.toHaveLength(0);
     expect(screen.getAllByText("10 min")).not.toHaveLength(0);
     expect(screen.getAllByText("128 MB")).not.toHaveLength(0);
+  });
+
+  it("prompts for the password after an unauthorized camera request and loads cameras after sign-in", async () => {
+    mocks.listCameras
+      .mockRejectedValueOnce(new Error("Unauthorized"))
+      .mockResolvedValueOnce([
+        {
+          id: "front-main",
+          rootId: "B888808A681C",
+          rootPath: "/recordings/B888808A681C",
+          channel: "00",
+          alias: "前院主摄",
+          enabled: true,
+          clipCount: 1,
+          recordedDays: 1,
+          totalSeconds: 600,
+          totalBytes: 134217728,
+          latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
+        },
+      ]);
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Password"), "secret-password");
+    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await waitFor(() => expect(mocks.createSession).toHaveBeenCalledWith("secret-password"));
+    expect(await screen.findAllByText("前院主摄")).not.toHaveLength(0);
+    expect(mocks.listCameras).toHaveBeenCalledTimes(2);
   });
 
   it("shows recorded days, duration, and storage on each camera row", async () => {

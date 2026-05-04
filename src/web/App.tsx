@@ -1,4 +1,5 @@
-import { MonitorPlay } from "lucide-react";
+import { LockKeyhole, MonitorPlay } from "lucide-react";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CameraStream, PlaybackPlan, TimelineSpan } from "../shared/types";
 import { api } from "./api";
@@ -8,6 +9,7 @@ import { RangeControls } from "./components/RangeControls";
 import { VirtualPlayer } from "./player/VirtualPlayer";
 
 const PLAYBACK_WINDOW_MS = 30 * 60 * 1000;
+type AuthStatus = "checking" | "authenticated" | "required";
 
 function todayInputValue(): string {
   const now = new Date();
@@ -17,8 +19,16 @@ function todayInputValue(): string {
   return `${year}-${month}-${day}`;
 }
 
+function isUnauthorizedError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Unauthorized";
+}
+
 export default function App() {
   const playbackRequestId = useRef(0);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [cameras, setCameras] = useState<CameraStream[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [date, setDate] = useState(todayInputValue);
@@ -31,6 +41,25 @@ export default function App() {
   const [isLoadingTimeline, setIsLoadingTimeline] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  function resetPlaybackState() {
+    playbackRequestId.current += 1;
+    setSelectedAtMs(null);
+    setPlaybackPlan(null);
+    setPlaybackError(null);
+    setIsLoadingPlayback(false);
+  }
+
+  function requireSignIn() {
+    resetPlaybackState();
+    setAuthStatus("required");
+    setCameras([]);
+    setSelectedCameraId(null);
+    setTimeline([]);
+    setIsLoadingTimeline(false);
+    setIsRefreshing(false);
+    setError(null);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -45,11 +74,16 @@ export default function App() {
           return;
         }
 
+        setAuthStatus("authenticated");
         setCameras(nextCameras);
         setSelectedCameraId((current) => current ?? nextCameras[0]?.id ?? null);
       } catch (loadError) {
         if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load cameras");
+          if (isUnauthorizedError(loadError)) {
+            requireSignIn();
+          } else {
+            setError(loadError instanceof Error ? loadError.message : "Failed to load cameras");
+          }
         }
       } finally {
         if (!cancelled) {
@@ -64,6 +98,32 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  async function signIn(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextPassword = password.trim();
+
+    if (!nextPassword) {
+      setLoginError("Enter the app password.");
+      return;
+    }
+
+    setIsSigningIn(true);
+    setLoginError(null);
+
+    try {
+      await api.createSession(nextPassword);
+      const nextCameras = await api.listCameras();
+      setAuthStatus("authenticated");
+      setPassword("");
+      setCameras(nextCameras);
+      setSelectedCameraId(nextCameras[0]?.id ?? null);
+    } catch (signInError) {
+      setLoginError(isUnauthorizedError(signInError) ? "Password is incorrect." : "Sign in failed.");
+    } finally {
+      setIsSigningIn(false);
+    }
+  }
 
   const selectedCamera = useMemo(
     () => cameras.find((camera) => camera.id === selectedCameraId) ?? null,
@@ -123,8 +183,12 @@ export default function App() {
         }
       } catch (loadError) {
         if (!cancelled) {
-          setTimeline([]);
-          setError(loadError instanceof Error ? loadError.message : "Failed to load timeline");
+          if (isUnauthorizedError(loadError)) {
+            requireSignIn();
+          } else {
+            setTimeline([]);
+            setError(loadError instanceof Error ? loadError.message : "Failed to load timeline");
+          }
         }
       } finally {
         if (!cancelled) {
@@ -163,7 +227,11 @@ export default function App() {
       }
     } catch (loadError) {
       if (playbackRequestId.current === requestId) {
-        setPlaybackError(loadError instanceof Error ? loadError.message : "Failed to load playback plan");
+        if (isUnauthorizedError(loadError)) {
+          requireSignIn();
+        } else {
+          setPlaybackError(loadError instanceof Error ? loadError.message : "Failed to load playback plan");
+        }
       }
     } finally {
       if (playbackRequestId.current === requestId) {
@@ -184,6 +252,7 @@ export default function App() {
     try {
       await api.refreshIndex();
       const nextCameras = await api.listCameras();
+      setAuthStatus("authenticated");
       setCameras(nextCameras);
       setSelectedCameraId((current) => {
         if (current && nextCameras.some((camera) => camera.id === current)) {
@@ -193,10 +262,48 @@ export default function App() {
         return nextCameras[0]?.id ?? null;
       });
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh index");
+      if (isUnauthorizedError(refreshError)) {
+        requireSignIn();
+      } else {
+        setError(refreshError instanceof Error ? refreshError.message : "Failed to refresh index");
+      }
     } finally {
       setIsRefreshing(false);
     }
+  }
+
+  if (authStatus === "required") {
+    return (
+      <main className="login-shell">
+        <form className="login-panel" onSubmit={signIn}>
+          <div className="login-icon" aria-hidden="true">
+            <LockKeyhole size={26} />
+          </div>
+          <div>
+            <p className="eyebrow">Xiaomi Camera Playback</p>
+            <h1>Sign in</h1>
+            <p className="login-copy">Use the app password from the NAS deployment.</p>
+          </div>
+
+          <label className="password-control">
+            <span>Password</span>
+            <input
+              aria-label="Password"
+              autoComplete="current-password"
+              onChange={(event) => setPassword(event.target.value)}
+              type="password"
+              value={password}
+            />
+          </label>
+
+          {loginError ? <div className="status-banner">{loginError}</div> : null}
+
+          <button className="icon-button login-button" disabled={isSigningIn} type="submit">
+            {isSigningIn ? "Signing in" : "Sign in"}
+          </button>
+        </form>
+      </main>
+    );
   }
 
   return (
