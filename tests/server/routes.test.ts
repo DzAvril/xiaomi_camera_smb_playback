@@ -308,6 +308,23 @@ describe("playback API routes", () => {
     });
   });
 
+  it("returns a stable error envelope for malformed JSON request bodies", async () => {
+    await withIndexedFixture(async ({ app, cookies }) => {
+      const cameraId = app.catalog.listCameras()[0].id;
+
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/api/cameras/${cameraId}`,
+        headers: { "content-type": "application/json" },
+        cookies,
+        payload: "{",
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "Invalid request body" });
+    });
+  });
+
   it("returns 404 when patching a missing camera", async () => {
     await withIndexedFixture(async ({ app, cookies }) => {
       const response = await app.inject({

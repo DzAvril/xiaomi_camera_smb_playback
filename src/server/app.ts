@@ -22,6 +22,18 @@ function unauthorized() {
   return { error: "Unauthorized" };
 }
 
+function isInvalidJsonBodyError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const parserError = error as Error & { code?: string; statusCode?: number };
+  return (
+    parserError.code === "FST_ERR_CTP_INVALID_JSON_BODY" ||
+    (parserError.statusCode === 400 && parserError.message.includes("JSON"))
+  );
+}
+
 export function createApp(config: AppConfig, options: CreateAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: options.logger ?? false });
   const catalog = openCatalog(config.databasePath);
@@ -29,6 +41,14 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}): Fa
 
   app.decorate("catalog", catalog);
   app.register(cookie);
+
+  app.setErrorHandler((requestError, _request, reply) => {
+    if (isInvalidJsonBodyError(requestError)) {
+      return reply.code(400).send({ error: "Invalid request body" });
+    }
+
+    return reply.send(requestError);
+  });
 
   app.addHook("onRequest", async (request, reply) => {
     const routeKey = `${request.method} ${request.url.split("?")[0]}`;
