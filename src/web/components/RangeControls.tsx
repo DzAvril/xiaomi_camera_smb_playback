@@ -21,7 +21,7 @@ export function RangeControls({ date, disabled = false, isRefreshing = false, on
           value={date}
         />
       </label>
-      <button className="icon-button text-button" disabled={disabled || isRefreshing} onClick={onRefresh} type="button">
+      <button className="icon-button text-button" disabled={isRefreshing} onClick={onRefresh} type="button">
         <RotateCw aria-hidden="true" size={15} />
         {isRefreshing ? "Refreshing" : "Refresh"}
       </button>

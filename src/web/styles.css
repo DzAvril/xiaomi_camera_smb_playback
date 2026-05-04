@@ -73,7 +73,7 @@ input:disabled {
   display: grid;
   gap: 4px;
   width: 100%;
-  min-height: 78px;
+  min-height: 96px;
   padding: 10px;
   border: 1px solid #d7dbd2;
   border-radius: 6px;
@@ -109,7 +109,8 @@ input:disabled {
 
 .camera-row-title span,
 .camera-row-meta,
-.camera-row-sub {
+.camera-row-sub,
+.camera-row-stats span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -120,6 +121,20 @@ input:disabled {
 .camera-context {
   color: #66705f;
   font-size: 12px;
+}
+
+.camera-row-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding-top: 2px;
+  color: #2f3a33;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.camera-row-stats span {
+  min-width: 0;
 }
 
 .sidebar-stats {

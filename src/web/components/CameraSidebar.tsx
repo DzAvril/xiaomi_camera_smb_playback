@@ -79,6 +79,11 @@ export function CameraSidebar({ cameras, selectedCameraId, onSelectCamera }: Cam
                   <span className="camera-row-sub">
                     {hasRecordings ? `${camera.clipCount} clips · ${formatDuration(camera.totalSeconds)}` : "no recordings"}
                   </span>
+                  <span className="camera-row-stats" aria-label={`${camera.alias} recording stats`}>
+                    <span>{formatDays(camera.recordedDays)}</span>
+                    <span>{formatDuration(camera.totalSeconds)}</span>
+                    <span>{formatBytes(camera.totalBytes)}</span>
+                  </span>
                 </button>
               );
             })
