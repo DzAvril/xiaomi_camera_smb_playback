@@ -5,6 +5,7 @@ import { buildDayTimeline, listRecordedDays } from "../../src/server/timeline";
 
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
+const SECOND_MS = 1000;
 
 function clip(id: string, startAtMs: number, endAtMs: number, sizeBytes = 100): ClipRecord {
   return {
@@ -95,5 +96,17 @@ describe("listRecordedDays", () => {
     ]);
 
     expect(days).toEqual([{ date: "2026-05-04", totalSeconds: 900, totalBytes: 200 }]);
+  });
+
+  it("does not count small display-continuity gaps as recorded coverage", () => {
+    const may4 = startOfLocalDay("2026-05-04");
+    const clips = [
+      clip("a", may4, may4 + 10 * SECOND_MS),
+      clip("b", may4 + 10 * SECOND_MS + 500, may4 + 20 * SECOND_MS),
+    ];
+    const days = listRecordedDays(clips);
+
+    expect(buildDayTimeline(clips, "2026-05-04")).toHaveLength(1);
+    expect(days).toEqual([{ date: "2026-05-04", totalSeconds: 19.5, totalBytes: 200 }]);
   });
 });

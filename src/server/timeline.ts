@@ -42,6 +42,45 @@ export function buildDayTimeline(clips: ClipRecord[], dateText: string): Timelin
   return spans;
 }
 
+function calculateRecordedCoverageSeconds(clips: ClipRecord[], dateText: string): number {
+  const dayStart = startOfLocalDay(dateText);
+  const dayEnd = endOfLocalDay(dateText);
+  const intervals = clips
+    .filter((clip) => clip.endAtMs > dayStart && clip.startAtMs < dayEnd)
+    .map((clip) => ({
+      startAtMs: Math.max(clip.startAtMs, dayStart),
+      endAtMs: Math.min(clip.endAtMs, dayEnd),
+    }))
+    .sort((a, b) => a.startAtMs - b.startAtMs);
+
+  let totalMs = 0;
+  let currentStartAtMs: number | null = null;
+  let currentEndAtMs: number | null = null;
+
+  for (const interval of intervals) {
+    if (currentStartAtMs === null || currentEndAtMs === null) {
+      currentStartAtMs = interval.startAtMs;
+      currentEndAtMs = interval.endAtMs;
+      continue;
+    }
+
+    if (interval.startAtMs <= currentEndAtMs) {
+      currentEndAtMs = Math.max(currentEndAtMs, interval.endAtMs);
+      continue;
+    }
+
+    totalMs += currentEndAtMs - currentStartAtMs;
+    currentStartAtMs = interval.startAtMs;
+    currentEndAtMs = interval.endAtMs;
+  }
+
+  if (currentStartAtMs !== null && currentEndAtMs !== null) {
+    totalMs += currentEndAtMs - currentStartAtMs;
+  }
+
+  return totalMs / 1000;
+}
+
 export function listRecordedDays(clips: ClipRecord[]): RecordedDay[] {
   const byDate = new Map<string, RecordedDay>();
   const coverageClipsByDate = new Map<string, ClipRecord[]>();
@@ -72,10 +111,7 @@ export function listRecordedDays(clips: ClipRecord[]): RecordedDay[] {
 
   for (const [date, dateClips] of coverageClipsByDate) {
     const existing = byDate.get(date) ?? { date, totalSeconds: 0, totalBytes: 0 };
-    existing.totalSeconds = buildDayTimeline(dateClips, date).reduce(
-      (total, span) => total + span.durationSeconds,
-      0,
-    );
+    existing.totalSeconds = calculateRecordedCoverageSeconds(dateClips, date);
     byDate.set(date, existing);
   }
 
