@@ -40,6 +40,9 @@ describe("parseXiaomiClipName", () => {
   it("rejects malformed names", () => {
     expect(parseXiaomiClipName("20260504110024.mp4")).toBeNull();
     expect(parseXiaomiClipName("00_20260504110024_20260504111027.mov")).toBeNull();
+    expect(parseXiaomiClipName("_20260504110024_20260504111027.mp4")).toBeNull();
+    expect(parseXiaomiClipName("00__20260504111027.mp4")).toBeNull();
+    expect(parseXiaomiClipName("00_20260504110024_.mp4")).toBeNull();
   });
 
   it("rejects invalid timestamp components", () => {
