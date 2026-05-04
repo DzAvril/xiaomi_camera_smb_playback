@@ -35,7 +35,7 @@ function isSyntacticallyValidUnsatisfiableRange(header: string | undefined, size
   }
 
   const start = Number(match[1]);
-  const requestedEnd = match[2] === "" ? sizeBytes - 1 : Number(match[2]);
+  const requestedEnd = match[2] === "" ? start : Number(match[2]);
 
   return Number.isSafeInteger(start) && Number.isSafeInteger(requestedEnd) && start <= requestedEnd && start >= sizeBytes;
 }

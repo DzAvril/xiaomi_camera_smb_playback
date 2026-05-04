@@ -199,6 +199,33 @@ describe("streamClipFile", () => {
     }
   });
 
+  it.each(["bytes=10-", "bytes=11-"])(
+    "returns 416 for syntactically valid open-ended range %s when it cannot be satisfied",
+    async (range) => {
+      const root = createTempDir();
+      const file = path.join(root, "clip.mp4");
+      writeFileSync(file, Buffer.from("0123456789"));
+
+      const app = Fastify();
+      app.get("/clip", (request, reply) => streamClipFile(request, reply, clip(root, "clip.mp4", 10)));
+
+      try {
+        const response = await app.inject({
+          method: "GET",
+          url: "/clip",
+          headers: { range },
+        });
+
+        expect(response.statusCode).toBe(416);
+        expect(response.headers["accept-ranges"]).toBe("bytes");
+        expect(response.headers["content-range"]).toBe("bytes */10");
+        expect(response.body).toBe("");
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
   it("returns 404 when the indexed clip file is missing", async () => {
     const root = createTempDir();
 
