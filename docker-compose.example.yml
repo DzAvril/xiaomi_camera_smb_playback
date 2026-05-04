@@ -1,0 +1,18 @@
+services:
+  xiaomi-camera-playback:
+    build: .
+    image: xiaomi-camera-playback:local
+    container_name: xiaomi-camera-playback
+    restart: unless-stopped
+    ports:
+      - "8088:8080"
+    environment:
+      APP_PASSWORD: "change-this-password"
+      TZ: Asia/Shanghai
+      DATA_DIR: /app/app-data
+      CAMERA_CONFIG_PATH: /app/config/cameras.yaml
+      SCAN_INTERVAL_SECONDS: "300"
+    volumes:
+      - /tmp/zfsv3/sata14/15216702047/data:/recordings:ro
+      - ./app-data:/app/app-data
+      - ./config/cameras.example.yaml:/app/config/cameras.yaml:ro

@@ -1,7 +1,7 @@
 import { createReadStream, lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { ClipRecord } from "../shared/types";
+import type { ClipRecord } from "../shared/types.js";
 
 export type ByteRange = {
   start: number;

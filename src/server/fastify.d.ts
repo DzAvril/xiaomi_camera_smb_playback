@@ -1,4 +1,4 @@
-import type { Catalog } from "./db";
+import type { Catalog } from "./db.js";
 
 declare module "fastify" {
   interface FastifyInstance {

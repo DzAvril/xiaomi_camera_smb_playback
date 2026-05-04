@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/server/main.ts",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run build:server",
+    "build:server": "tsc -p tsconfig.server.json",
     "start": "node dist-server/server/main.js",
     "test": "TZ=Asia/Shanghai vitest run",
     "test:watch": "TZ=Asia/Shanghai vitest",

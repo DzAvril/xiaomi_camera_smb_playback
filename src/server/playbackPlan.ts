@@ -1,4 +1,4 @@
-import type { ClipRecord, PlaybackGap, PlaybackPlan, PlaybackSegment } from "../shared/types";
+import type { ClipRecord, PlaybackGap, PlaybackPlan, PlaybackSegment } from "../shared/types.js";
 
 export function buildPlaybackPlan(
   cameraId: string,

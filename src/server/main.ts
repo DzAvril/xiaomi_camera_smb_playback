@@ -1,8 +1,8 @@
 import { mkdirSync } from "node:fs";
-import { createApp } from "./app";
-import { loadConfig } from "./config";
-import { scanRecordings } from "./indexer";
-import { registerShutdownHandlers } from "./shutdown";
+import { createApp } from "./app.js";
+import { loadConfig } from "./config.js";
+import { scanRecordings } from "./indexer.js";
+import { registerShutdownHandlers } from "./shutdown.js";
 
 const config = loadConfig();
 mkdirSync(config.dataDir, { recursive: true });

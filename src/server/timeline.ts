@@ -1,5 +1,5 @@
-import type { ClipRecord, TimelineSpan } from "../shared/types";
-import { endOfLocalDay, formatLocalDate, startOfLocalDay } from "../shared/time";
+import type { ClipRecord, TimelineSpan } from "../shared/types.js";
+import { endOfLocalDay, formatLocalDate, startOfLocalDay } from "../shared/time.js";
 
 const CONTINUITY_THRESHOLD_MS = 1000;
 

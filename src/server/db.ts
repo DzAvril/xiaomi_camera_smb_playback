@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import type { CameraStream, ClipRecord } from "../shared/types";
+import type { CameraStream, ClipRecord } from "../shared/types.js";
 
 export type CameraMetadata = {
   id: string;

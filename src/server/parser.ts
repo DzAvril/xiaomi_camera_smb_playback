@@ -1,4 +1,4 @@
-import { formatLocalDate, parseXiaomiTimestamp } from "../shared/time";
+import { formatLocalDate, parseXiaomiTimestamp } from "../shared/time.js";
 
 const XIAOMI_CLIP_NAME = /^(?<channel>\d{2})_(?<start>\d{14})_(?<end>\d{14})\.mp4$/i;
 

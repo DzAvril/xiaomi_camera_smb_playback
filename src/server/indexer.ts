@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ClipRecord } from "../shared/types";
-import type { AppConfig } from "./config";
-import type { Catalog } from "./db";
-import { createCameraId, createClipId } from "./ids";
-import { parseXiaomiClipName } from "./parser";
+import type { ClipRecord } from "../shared/types.js";
+import type { AppConfig } from "./config.js";
+import type { Catalog } from "./db.js";
+import { createCameraId, createClipId } from "./ids.js";
+import { parseXiaomiClipName } from "./parser.js";
 
 type RootConfig = AppConfig["roots"][number];
 

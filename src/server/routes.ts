@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { endOfLocalDay, startOfLocalDay } from "../shared/time";
-import type { AppConfig } from "./config";
-import { scanRecordings, type ScanResult } from "./indexer";
-import { buildPlaybackPlan } from "./playbackPlan";
-import { streamClipFile } from "./streaming";
-import { buildDayTimeline, listRecordedDays } from "./timeline";
+import { endOfLocalDay, startOfLocalDay } from "../shared/time.js";
+import type { AppConfig } from "./config.js";
+import { scanRecordings, type ScanResult } from "./indexer.js";
+import { buildPlaybackPlan } from "./playbackPlan.js";
+import { streamClipFile } from "./streaming.js";
+import { buildDayTimeline, listRecordedDays } from "./timeline.js";
 
 type CameraParams = {
   cameraId: string;
