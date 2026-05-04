@@ -13,6 +13,21 @@ function createTempDir() {
   return mkdtempSync(path.join(tmpdir(), "xcp-routes-"));
 }
 
+async function withHostTimeZone<T>(timeZone: string, run: () => Promise<T>): Promise<T> {
+  const originalTimeZone = process.env.TZ;
+  process.env.TZ = timeZone;
+
+  try {
+    return await run();
+  } finally {
+    if (originalTimeZone === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = originalTimeZone;
+    }
+  }
+}
+
 function createTestConfig(dir: string, root: string): AppConfig {
   return {
     password: PASSWORD,
@@ -181,6 +196,47 @@ describe("playback API routes", () => {
     });
   });
 
+  it("preserves patched camera alias and enabled values after refreshing the index", async () => {
+    await withIndexedFixture(async ({ app, cookies }) => {
+      const cameraId = app.catalog.listCameras()[0].id;
+
+      const patchResponse = await app.inject({
+        method: "PATCH",
+        url: `/api/cameras/${cameraId}`,
+        cookies,
+        payload: { alias: "Garage", enabled: false },
+      });
+      expect(patchResponse.statusCode).toBe(200);
+
+      const refreshResponse = await app.inject({
+        method: "POST",
+        url: "/api/index/refresh",
+        cookies,
+      });
+      expect(refreshResponse.statusCode).toBe(200);
+
+      const camerasResponse = await app.inject({ method: "GET", url: "/api/cameras", cookies });
+      expect(camerasResponse.statusCode).toBe(200);
+      expect(camerasResponse.json()[0]).toEqual(expect.objectContaining({ alias: "Garage", enabled: false }));
+    });
+  });
+
+  it("rejects non-object camera patch bodies", async () => {
+    await withIndexedFixture(async ({ app, cookies }) => {
+      const cameraId = app.catalog.listCameras()[0].id;
+
+      const response = await app.inject({
+        method: "PATCH",
+        url: `/api/cameras/${cameraId}`,
+        cookies,
+        payload: ["bad"],
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({ error: "Invalid camera update" });
+    });
+  });
+
   it("returns 404 when patching a missing camera", async () => {
     await withIndexedFixture(async ({ app, cookies }) => {
       const response = await app.inject({
@@ -214,6 +270,43 @@ describe("playback API routes", () => {
       });
       expect(inverted.statusCode).toBe(400);
       expect(inverted.json()).toEqual({ error: "Invalid plan range" });
+
+      const malformed = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/plan?start=not-a-date&end=2026-05-04T03:00:00.000Z`,
+        cookies,
+      });
+      expect(malformed.statusCode).toBe(400);
+      expect(malformed.json()).toEqual({ error: "Invalid plan range" });
+    });
+  });
+
+  it("parses timezone-less plan timestamps as Shanghai local time under a UTC host timezone", async () => {
+    await withIndexedFixture(async ({ app, cookies }) => {
+      const cameraId = app.catalog.listCameras()[0].id;
+
+      await withHostTimeZone("UTC", async () => {
+        const response = await app.inject({
+          method: "GET",
+          url: `/api/cameras/${cameraId}/plan?start=2026-05-04T11:00:00&end=2026-05-04T11:10:00`,
+          cookies,
+        });
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual(
+          expect.objectContaining({
+            playableSeconds: 600,
+            segments: [
+              expect.objectContaining({
+                playableSeconds: 600,
+                virtualStartSeconds: 0,
+                virtualEndSeconds: 600,
+              }),
+            ],
+            gaps: [],
+          }),
+        );
+      });
     });
   });
 

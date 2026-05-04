@@ -78,8 +78,6 @@ export function openCatalog(databasePath: string) {
       root_id = excluded.root_id,
       root_path = excluded.root_path,
       channel = excluded.channel,
-      alias = excluded.alias,
-      enabled = excluded.enabled,
       updated_at_ms = excluded.updated_at_ms
   `);
 

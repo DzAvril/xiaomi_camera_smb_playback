@@ -79,6 +79,41 @@ describe("catalog", () => {
     catalog.close();
   });
 
+  it("preserves mutable camera alias and enabled values when scanner upserts existing cameras", () => {
+    const catalog = createTempCatalog();
+    const cameraId = createCameraId("dual", "00");
+
+    catalog.upsertCamera({
+      id: cameraId,
+      rootId: "dual",
+      rootPath: "/recordings/dual",
+      channel: "00",
+      alias: "双摄 A",
+      enabled: true,
+    });
+    catalog.updateCameraAlias(cameraId, "Garage", false);
+
+    catalog.upsertCamera({
+      id: cameraId,
+      rootId: "dual-renamed",
+      rootPath: "/recordings/dual-renamed",
+      channel: "01",
+      alias: "双摄 A",
+      enabled: true,
+    });
+
+    expect(catalog.listCameras()[0]).toMatchObject({
+      id: cameraId,
+      rootId: "dual-renamed",
+      rootPath: "/recordings/dual-renamed",
+      channel: "01",
+      alias: "Garage",
+      enabled: false,
+    });
+
+    catalog.close();
+  });
+
   it("counts recorded days in Shanghai time under UTC host timezone", () => {
     withHostTimeZone("UTC", () => {
       const catalog = createTempCatalog();

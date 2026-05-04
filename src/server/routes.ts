@@ -28,6 +28,11 @@ type CameraPatchBody = {
   enabled?: unknown;
 };
 
+const EXPLICIT_TIME_ZONE = /(?:Z|[+-]\d{2}:\d{2})$/;
+const SHANGHAI_LOCAL_DATETIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+const SHANGHAI_OFFSET_HOURS = 8;
+
 function error(message: string) {
   return { error: message };
 }
@@ -54,12 +59,49 @@ function parseTimestampQuery(value: unknown): number | null {
     return null;
   }
 
-  const timestampMs = Date.parse(value);
-  return Number.isFinite(timestampMs) ? timestampMs : null;
+  if (EXPLICIT_TIME_ZONE.test(value)) {
+    const timestampMs = Date.parse(value);
+    return Number.isFinite(timestampMs) ? timestampMs : null;
+  }
+
+  const match = SHANGHAI_LOCAL_DATETIME.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText = "0", millisecondText = "0"] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText);
+  const millisecond = Number(millisecondText.padEnd(3, "0"));
+
+  const timestampMs = Date.UTC(year, month - 1, day, hour - SHANGHAI_OFFSET_HOURS, minute, second, millisecond);
+  const roundTrip = new Date(timestampMs + SHANGHAI_OFFSET_HOURS * 60 * 60 * 1000);
+
+  if (
+    roundTrip.getUTCFullYear() !== year ||
+    roundTrip.getUTCMonth() !== month - 1 ||
+    roundTrip.getUTCDate() !== day ||
+    roundTrip.getUTCHours() !== hour ||
+    roundTrip.getUTCMinutes() !== minute ||
+    roundTrip.getUTCSeconds() !== second ||
+    roundTrip.getUTCMilliseconds() !== millisecond
+  ) {
+    return null;
+  }
+
+  return timestampMs;
 }
 
 function listAllCameraClips(app: FastifyInstance, cameraId: string) {
   return app.catalog.listClipsForCamera(cameraId, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+}
+
+function isCameraPatchBody(value: unknown): value is CameraPatchBody {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function registerRoutes(app: FastifyInstance, config: AppConfig): void {
@@ -75,9 +117,13 @@ export function registerRoutes(app: FastifyInstance, config: AppConfig): void {
         return reply.code(404).send(error("Camera not found"));
       }
 
-      const body = request.body ?? {};
+      if (!isCameraPatchBody(request.body)) {
+        return reply.code(400).send(error("Invalid camera update"));
+      }
+
+      const body = request.body;
       if (
-        (body.alias !== undefined && typeof body.alias !== "string") ||
+        (body.alias !== undefined && (typeof body.alias !== "string" || body.alias.length === 0)) ||
         (body.enabled !== undefined && typeof body.enabled !== "boolean")
       ) {
         return reply.code(400).send(error("Invalid camera update"));
