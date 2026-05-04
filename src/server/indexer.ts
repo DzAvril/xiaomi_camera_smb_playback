@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import fs from "node:fs";
 import path from "node:path";
 import type { ClipRecord } from "../shared/types";
 import type { AppConfig } from "./config";
@@ -14,11 +14,58 @@ export type ScanResult = {
 };
 
 export function scanRecordings(catalog: Catalog, roots: RootConfig[]): ScanResult {
+  return scanRecordingsWithFileSystem(catalog, roots, fs);
+}
+
+type FileSystem = {
+  existsSync(path: string): boolean;
+  readdirSync(path: string, options: { withFileTypes: true }): Array<{
+    name: string;
+    isFile(): boolean;
+  }>;
+  statSync(path: string): {
+    size: number;
+    mtimeMs: number;
+  };
+};
+
+function readRootFiles(fileSystem: FileSystem, rootPath: string) {
+  try {
+    if (!fileSystem.existsSync(rootPath)) {
+      return null;
+    }
+    return fileSystem.readdirSync(rootPath, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+}
+
+function statFile(fileSystem: FileSystem, filePath: string) {
+  try {
+    return fileSystem.statSync(filePath);
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export function scanRecordingsWithFileSystem(
+  catalog: Catalog,
+  roots: RootConfig[],
+  fileSystem: FileSystem,
+): ScanResult {
   let cameraCount = 0;
   let clipCount = 0;
 
   for (const root of roots) {
-    const files = existsSync(root.path) ? readdirSync(root.path, { withFileTypes: true }) : [];
+    const files = readRootFiles(fileSystem, root.path);
     for (const stream of root.streams) {
       const cameraId = createCameraId(root.id, stream.channel);
       cameraCount += 1;
@@ -31,6 +78,10 @@ export function scanRecordings(catalog: Catalog, roots: RootConfig[]): ScanResul
         enabled: stream.enabled,
       });
 
+      if (files === null) {
+        continue;
+      }
+
       const seenIds: string[] = [];
       for (const entry of files) {
         if (!entry.isFile()) {
@@ -42,7 +93,11 @@ export function scanRecordings(catalog: Catalog, roots: RootConfig[]): ScanResul
         }
 
         const absolutePath = path.join(root.path, entry.name);
-        const stat = statSync(absolutePath);
+        const stat = statFile(fileSystem, absolutePath);
+        if (stat === null) {
+          continue;
+        }
+
         const clip: ClipRecord = {
           id: createClipId(absolutePath, stat.size, stat.mtimeMs),
           cameraId,
