@@ -225,6 +225,48 @@ describe("playback API routes", () => {
     });
   });
 
+  it("uses targeted camera lookup for camera-scoped routes", async () => {
+    await withIndexedFixture(async ({ app, cookies }) => {
+      const cameraId = app.catalog.listCameras()[0].id;
+      app.catalog.listCameras = () => {
+        throw new Error("camera-scoped route should not list all cameras");
+      };
+
+      const patchResponse = await app.inject({
+        method: "PATCH",
+        url: `/api/cameras/${cameraId}`,
+        cookies,
+        payload: { alias: "Garage" },
+      });
+      expect(patchResponse.statusCode).toBe(200);
+      expect(patchResponse.json()).toEqual(expect.objectContaining({ alias: "Garage", enabled: true }));
+
+      const daysResponse = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/days`,
+        cookies,
+      });
+      expect(daysResponse.statusCode).toBe(200);
+      expect(daysResponse.json()).toEqual([expect.objectContaining({ date: "2026-05-04" })]);
+
+      const timelineResponse = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/timeline?date=2026-05-04`,
+        cookies,
+      });
+      expect(timelineResponse.statusCode).toBe(200);
+      expect(timelineResponse.json()).toEqual([expect.objectContaining({ durationSeconds: 600 })]);
+
+      const planResponse = await app.inject({
+        method: "GET",
+        url: `/api/cameras/${cameraId}/plan?start=2026-05-04T03:00:00.000Z&end=2026-05-04T03:10:00.000Z`,
+        cookies,
+      });
+      expect(planResponse.statusCode).toBe(200);
+      expect(planResponse.json()).toEqual(expect.objectContaining({ cameraId, playableSeconds: 600 }));
+    });
+  });
+
   it("preserves patched camera alias and enabled values after refreshing the index", async () => {
     await withIndexedFixture(async ({ app, cookies }) => {
       const cameraId = app.catalog.listCameras()[0].id;

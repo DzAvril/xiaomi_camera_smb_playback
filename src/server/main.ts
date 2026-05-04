@@ -6,7 +6,7 @@ import { scanRecordings } from "./indexer";
 const config = loadConfig();
 mkdirSync(config.dataDir, { recursive: true });
 
-const app = createApp(config);
+const app = createApp(config, { logger: true });
 try {
   scanRecordings(app.catalog, config.roots);
 } catch (error) {

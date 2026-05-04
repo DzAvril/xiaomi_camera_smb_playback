@@ -79,6 +79,25 @@ describe("catalog", () => {
     catalog.close();
   });
 
+  it("gets a camera by id without aggregate clip metadata", () => {
+    const catalog = createTempCatalog();
+    const cameraId = createCameraId("dual", "00");
+
+    upsertDefaultCamera(catalog, cameraId);
+
+    expect(catalog.getCameraById(cameraId)).toEqual({
+      id: cameraId,
+      rootId: "dual",
+      rootPath: "/recordings/dual",
+      channel: "00",
+      alias: "双摄 A",
+      enabled: true,
+    });
+    expect(catalog.getCameraById("missing-camera")).toBeNull();
+
+    catalog.close();
+  });
+
   it("preserves mutable camera alias and enabled values when scanner upserts existing cameras", () => {
     const catalog = createTempCatalog();
     const cameraId = createCameraId("dual", "00");

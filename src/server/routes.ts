@@ -44,7 +44,7 @@ function error(message: string) {
 }
 
 function findCamera(app: FastifyInstance, cameraId: string) {
-  return app.catalog.listCameras().find((camera) => camera.id === cameraId) ?? null;
+  return app.catalog.getCameraById(cameraId);
 }
 
 function parseDateQuery(value: unknown): string | null {

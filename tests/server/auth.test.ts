@@ -108,6 +108,19 @@ describe("auth app shell", () => {
     }
   });
 
+  it("allows health checks when request logging is enabled", async () => {
+    const app = createApp(createTestConfig(), { logger: true });
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/health" });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ ok: true });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("rejects protected camera requests without a session", async () => {
     const app = createApp(createTestConfig());
 

@@ -1,5 +1,5 @@
 import cookie from "@fastify/cookie";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 import {
   constantTimePasswordEquals,
   createSessionStore,
@@ -14,14 +14,16 @@ type SessionBody = {
   password?: unknown;
 };
 
+type CreateAppOptions = Pick<FastifyServerOptions, "logger">;
+
 const PUBLIC_API_ROUTES = new Set(["GET /api/health", "POST /api/session"]);
 
 function unauthorized() {
   return { error: "Unauthorized" };
 }
 
-export function createApp(config: AppConfig): FastifyInstance {
-  const app = Fastify();
+export function createApp(config: AppConfig, options: CreateAppOptions = {}): FastifyInstance {
+  const app = Fastify({ logger: options.logger ?? false });
   const catalog = openCatalog(config.databasePath);
   const sessions = createSessionStore();
 

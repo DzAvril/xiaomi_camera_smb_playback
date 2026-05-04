@@ -1,6 +1,15 @@
 import Database from "better-sqlite3";
 import type { CameraStream, ClipRecord } from "../shared/types";
 
+export type CameraMetadata = {
+  id: string;
+  rootId: string;
+  rootPath: string;
+  channel: string;
+  alias: string;
+  enabled: boolean;
+};
+
 type CameraRow = {
   id: string;
   root_id: string;
@@ -131,6 +140,17 @@ export function openCatalog(databasePath: string) {
     };
   }
 
+  function toCameraMetadata(row: CameraRow): CameraMetadata {
+    return {
+      id: row.id,
+      rootId: row.root_id,
+      rootPath: row.root_path,
+      channel: row.channel,
+      alias: row.alias,
+      enabled: row.enabled === 1,
+    };
+  }
+
   return {
     db,
     upsertCamera(input: CameraInput) {
@@ -175,18 +195,17 @@ export function openCatalog(databasePath: string) {
       >;
 
       return rows.map((row) => ({
-        id: row.id,
-        rootId: row.root_id,
-        rootPath: row.root_path,
-        channel: row.channel,
-        alias: row.alias,
-        enabled: row.enabled === 1,
+        ...toCameraMetadata(row),
         clipCount: row.clip_count,
         recordedDays: row.recorded_days,
         totalSeconds: row.total_seconds,
         totalBytes: row.total_bytes,
         latestEndAtMs: row.latest_end_at_ms,
       }));
+    },
+    getCameraById(cameraId: string): CameraMetadata | null {
+      const row = db.prepare("SELECT * FROM camera_streams WHERE id = ?").get(cameraId) as CameraRow | undefined;
+      return row ? toCameraMetadata(row) : null;
     },
     listClipsForCamera(cameraId: string, startAtMs: number, endAtMs: number): ClipRecord[] {
       const rows = db
