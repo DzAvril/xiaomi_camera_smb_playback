@@ -60,7 +60,16 @@ describe("buildPlaybackPlan", () => {
       ["a", 300, 300],
       ["b", 0, 480]
     ]);
-    expect(plan.gaps.map((gap) => gap.durationSeconds)).toEqual([120, 600]);
+    expect(plan.gaps.map((gap) => [
+      gap.startAtMs,
+      gap.endAtMs,
+      gap.durationSeconds,
+      gap.virtualStartSeconds,
+      gap.virtualEndSeconds
+    ])).toEqual([
+      [at(11, 10).getTime(), at(11, 12).getTime(), 120, 300, 420],
+      [at(11, 20).getTime(), at(11, 30).getTime(), 600, 900, 1500]
+    ]);
   });
 
   it("emits only uncovered portions for overlapping clips", () => {
@@ -106,6 +115,38 @@ describe("buildPlaybackPlan", () => {
     expect(plan.gaps).toEqual([]);
     expectMonotonicNonOverlappingVirtualSegments(plan);
     expectUniqueVirtualCoverage(plan, 900);
+  });
+
+  it("chooses the longest same-start clip deterministically regardless of input order", () => {
+    const start = at(11, 0).getTime();
+    const end = at(11, 15).getTime();
+    const short = clip("short", at(11, 0), at(11, 5));
+    const long = clip("long", at(11, 0), at(11, 15));
+
+    const shortFirstPlan = buildPlaybackPlan("cam-00", [short, long], start, end);
+    const longFirstPlan = buildPlaybackPlan("cam-00", [long, short], start, end);
+
+    const expectedSegments = [
+      {
+        clipId: "long",
+        fileUrl: "/api/clips/long/file",
+        wallStartAtMs: start,
+        wallEndAtMs: end,
+        clipOffsetSeconds: 0,
+        playableSeconds: 900,
+        virtualStartSeconds: 0,
+        virtualEndSeconds: 900
+      }
+    ];
+
+    expect(shortFirstPlan.segments).toEqual(expectedSegments);
+    expect(longFirstPlan.segments).toEqual(expectedSegments);
+    expect(shortFirstPlan.playableSeconds).toBe(900);
+    expect(longFirstPlan.playableSeconds).toBe(900);
+    expect(shortFirstPlan.gaps).toEqual([]);
+    expect(longFirstPlan.gaps).toEqual([]);
+    expectMonotonicNonOverlappingVirtualSegments(shortFirstPlan);
+    expectMonotonicNonOverlappingVirtualSegments(longFirstPlan);
   });
 
   it("rejects invalid ranges", () => {

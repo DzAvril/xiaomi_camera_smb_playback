@@ -12,7 +12,7 @@ export function buildPlaybackPlan(
 
   const sorted = clips
     .filter((clip) => clip.endAtMs > startAtMs && clip.startAtMs < endAtMs)
-    .sort((a, b) => a.startAtMs - b.startAtMs);
+    .sort((a, b) => a.startAtMs - b.startAtMs || b.endAtMs - a.endAtMs || a.id.localeCompare(b.id));
 
   const segments: PlaybackSegment[] = [];
   const gaps: PlaybackGap[] = [];
