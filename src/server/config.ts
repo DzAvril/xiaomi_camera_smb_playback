@@ -39,6 +39,26 @@ export type AppConfig = {
 
 export type EnvLike = Record<string, string | undefined>;
 
+function validateCameraConfig(parsed: z.infer<typeof CameraConfigSchema>): void {
+  const rootIds = new Set<string>();
+
+  for (const root of parsed.recordingRoots) {
+    const normalizedRootId = root.id.toLowerCase();
+    if (rootIds.has(normalizedRootId)) {
+      throw new Error(`Duplicate recording root id: ${normalizedRootId}`);
+    }
+    rootIds.add(normalizedRootId);
+
+    const channels = new Set<string>();
+    for (const stream of root.streams) {
+      if (channels.has(stream.channel)) {
+        throw new Error(`Duplicate stream channel for root ${root.id}: ${stream.channel}`);
+      }
+      channels.add(stream.channel);
+    }
+  }
+}
+
 export function loadConfig(env: EnvLike = process.env): AppConfig {
   const password = env.APP_PASSWORD;
   if (!password) {
@@ -56,6 +76,7 @@ export function loadConfig(env: EnvLike = process.env): AppConfig {
 
   const yaml = readFileSync(cameraConfigPath, "utf8");
   const parsed = CameraConfigSchema.parse(parse(yaml));
+  validateCameraConfig(parsed);
 
   return {
     password,

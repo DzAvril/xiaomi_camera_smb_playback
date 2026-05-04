@@ -230,7 +230,9 @@ describe("catalog", () => {
       detail: string;
     }>;
 
-    expect(rows.map((row) => row.detail).join("\n")).toContain("idx_clips_camera_end_start");
+    expect(rows.map((row) => row.detail).join("\n")).toContain(
+      "SEARCH clips USING INDEX idx_clips_camera_end_start (camera_id=? AND end_at_ms>?)",
+    );
 
     catalog.close();
   });
