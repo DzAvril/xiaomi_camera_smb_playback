@@ -29,6 +29,57 @@ function configuredRoot(root: string) {
   };
 }
 
+function makeMp4WithMovieDuration(durationSeconds: number): Buffer {
+  const timescale = 1_000;
+  const duration = Math.round(durationSeconds * timescale);
+  const ftyp = Buffer.alloc(16);
+  ftyp.writeUInt32BE(16, 0);
+  ftyp.write("ftyp", 4, "ascii");
+  ftyp.write("isom", 8, "ascii");
+
+  const mvhd = Buffer.alloc(32);
+  mvhd.writeUInt32BE(32, 0);
+  mvhd.write("mvhd", 4, "ascii");
+  mvhd.writeUInt32BE(timescale, 20);
+  mvhd.writeUInt32BE(duration, 24);
+
+  const moov = Buffer.alloc(8);
+  moov.writeUInt32BE(8 + mvhd.length, 0);
+  moov.write("moov", 4, "ascii");
+
+  return Buffer.concat([ftyp, moov, mvhd]);
+}
+
+function makeFragmentedMp4WithSidxDuration(durationSeconds: number): Buffer {
+  const timescale = 1_000;
+  const duration = Math.round(durationSeconds * timescale);
+  const ftyp = Buffer.alloc(16);
+  ftyp.writeUInt32BE(16, 0);
+  ftyp.write("ftyp", 4, "ascii");
+  ftyp.write("iso6", 8, "ascii");
+
+  const mvhd = Buffer.alloc(32);
+  mvhd.writeUInt32BE(32, 0);
+  mvhd.write("mvhd", 4, "ascii");
+  mvhd.writeUInt32BE(timescale, 20);
+  mvhd.writeUInt32BE(0, 24);
+
+  const moov = Buffer.alloc(8);
+  moov.writeUInt32BE(8 + mvhd.length, 0);
+  moov.write("moov", 4, "ascii");
+
+  const sidx = Buffer.alloc(44);
+  sidx.writeUInt32BE(44, 0);
+  sidx.write("sidx", 4, "ascii");
+  sidx.writeUInt32BE(1, 12);
+  sidx.writeUInt32BE(timescale, 16);
+  sidx.writeUInt16BE(1, 30);
+  sidx.writeUInt32BE(1024, 32);
+  sidx.writeUInt32BE(duration, 36);
+
+  return Buffer.concat([ftyp, moov, mvhd, sidx]);
+}
+
 describe("scanRecordings", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -147,6 +198,58 @@ describe("scanRecordings", () => {
     expect(catalog.listCameras().map((camera) => [camera.channel, camera.clipCount])).toEqual([
       ["00", 1],
       ["10", 0]
+    ]);
+
+    catalog.close();
+  });
+
+  it("uses the MP4 movie duration when the filename end timestamp is too long", async () => {
+    const scanRecordings = await loadScanRecordings();
+    const dir = createTempDir();
+    const root = path.join(dir, "B888809544F6");
+    mkdirSync(root);
+    writeFileSync(
+      path.join(root, "00_20260504120000_20260504150000.mp4"),
+      makeMp4WithMovieDuration(120.5)
+    );
+
+    const catalog = openCatalog(path.join(dir, "catalog.sqlite"));
+    scanRecordings(catalog, [configuredRoot(root)]);
+
+    const cameraId = catalog.listCameras().find((camera) => camera.channel === "00")?.id;
+    expect(cameraId).toBeDefined();
+    expect(catalog.listClipsForCamera(cameraId!, 0, Number.MAX_SAFE_INTEGER)).toEqual([
+      expect.objectContaining({
+        durationSeconds: 120.5,
+        endAtMs: new Date("2026-05-04T04:02:00.500Z").getTime(),
+        startAtMs: new Date("2026-05-04T04:00:00.000Z").getTime()
+      })
+    ]);
+
+    catalog.close();
+  });
+
+  it("uses the MP4 segment index duration when the movie duration is empty", async () => {
+    const scanRecordings = await loadScanRecordings();
+    const dir = createTempDir();
+    const root = path.join(dir, "B888809544F6");
+    mkdirSync(root);
+    writeFileSync(
+      path.join(root, "00_20260504120000_20260504150000.mp4"),
+      makeFragmentedMp4WithSidxDuration(95.25)
+    );
+
+    const catalog = openCatalog(path.join(dir, "catalog.sqlite"));
+    scanRecordings(catalog, [configuredRoot(root)]);
+
+    const cameraId = catalog.listCameras().find((camera) => camera.channel === "00")?.id;
+    expect(cameraId).toBeDefined();
+    expect(catalog.listClipsForCamera(cameraId!, 0, Number.MAX_SAFE_INTEGER)).toEqual([
+      expect.objectContaining({
+        durationSeconds: 95.25,
+        endAtMs: new Date("2026-05-04T04:01:35.250Z").getTime(),
+        startAtMs: new Date("2026-05-04T04:00:00.000Z").getTime()
+      })
     ]);
 
     catalog.close();

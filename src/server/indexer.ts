@@ -4,6 +4,7 @@ import type { ClipRecord } from "../shared/types.js";
 import type { AppConfig } from "./config.js";
 import type { Catalog } from "./db.js";
 import { createCameraId, createClipId } from "./ids.js";
+import { readMp4DurationSeconds } from "./mediaDuration.js";
 import { parseXiaomiClipName } from "./parser.js";
 
 type RootConfig = AppConfig["roots"][number];
@@ -98,6 +99,11 @@ export function scanRecordingsWithFileSystem(
           continue;
         }
 
+        const mediaDurationSeconds = readMp4DurationSeconds(absolutePath);
+        const durationSeconds =
+          mediaDurationSeconds === null ? parsed.durationSeconds : Math.round(mediaDurationSeconds * 1000) / 1000;
+        const endAtMs = parsed.startAtMs + Math.round(durationSeconds * 1000);
+
         const clip: ClipRecord = {
           id: createClipId(absolutePath, stat.size, stat.mtimeMs),
           cameraId,
@@ -105,8 +111,8 @@ export function scanRecordingsWithFileSystem(
           relativePath: entry.name,
           channel: parsed.channel,
           startAtMs: parsed.startAtMs,
-          endAtMs: parsed.endAtMs,
-          durationSeconds: parsed.durationSeconds,
+          endAtMs,
+          durationSeconds,
           sizeBytes: stat.size,
           mtimeMs: stat.mtimeMs,
         };
