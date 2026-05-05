@@ -3,6 +3,7 @@ import path from "node:path";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import packageJson from "../../package.json";
 import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../../src/shared/types";
 import App from "../../src/web/App";
 
@@ -57,6 +58,7 @@ describe("App", () => {
         enabled: true,
         clipCount: 1,
         recordedDays: 1,
+        recordedDates: ["2026-05-04"],
         totalSeconds: 600,
         totalBytes: 134217728,
         latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
@@ -125,6 +127,8 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findAllByText("前院主摄")).not.toHaveLength(0);
+    expect(screen.getByRole("heading", { name: "前院主摄" })).toBeInTheDocument();
+    expect(screen.queryByText("/recordings/B888808A681C · channel 00")).not.toBeInTheDocument();
     expect(screen.getAllByText("1 day")).not.toHaveLength(0);
     expect(screen.getAllByText("10 min")).not.toHaveLength(0);
     expect(screen.getAllByText("128 MB")).not.toHaveLength(0);
@@ -143,6 +147,7 @@ describe("App", () => {
           enabled: true,
           clipCount: 1,
           recordedDays: 1,
+          recordedDates: ["2026-05-04"],
           totalSeconds: 600,
           totalBytes: 134217728,
           latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
@@ -166,9 +171,49 @@ describe("App", () => {
 
     const cameraRow = await screen.findByRole("button", { name: /前院主摄/ });
 
+    expect(cameraRow.querySelector(".camera-row-meta")).not.toBeInTheDocument();
+    expect(within(cameraRow).queryByText("B888808A681C · 00")).not.toBeInTheDocument();
     expect(within(cameraRow).getByText("1 day")).toBeInTheDocument();
     expect(within(cameraRow).getByText("10 min")).toBeInTheDocument();
     expect(within(cameraRow).getByText("128 MB")).toBeInTheDocument();
+  });
+
+  it("counts sidebar recording days as unique calendar dates across cameras", async () => {
+    mocks.listCameras.mockResolvedValue([
+      {
+        id: "front-main",
+        rootId: "B888808A681C",
+        rootPath: "/recordings/B888808A681C",
+        channel: "00",
+        alias: "前院主摄",
+        enabled: true,
+        clipCount: 2,
+        recordedDays: 2,
+        recordedDates: ["2026-05-04", "2026-05-05"],
+        totalSeconds: 600,
+        totalBytes: 134217728,
+        latestEndAtMs: new Date("2026-05-05T03:10:00.000Z").getTime(),
+      },
+      {
+        id: "side-main",
+        rootId: "B888808A681D",
+        rootPath: "/recordings/B888808A681D",
+        channel: "01",
+        alias: "侧院主摄",
+        enabled: true,
+        clipCount: 2,
+        recordedDays: 2,
+        recordedDates: ["2026-05-05", "2026-05-06"],
+        totalSeconds: 1200,
+        totalBytes: 268435456,
+        latestEndAtMs: new Date("2026-05-06T03:10:00.000Z").getTime(),
+      },
+    ] as CameraStream[]);
+
+    render(<App />);
+
+    const recordingDays = await screen.findByText("Recording days");
+    expect(within(recordingDays.closest("div")!).getByText("3 days")).toBeInTheDocument();
   });
 
   it("marks recorded days in the playback calendar for the selected camera", async () => {
@@ -180,7 +225,7 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "2026-05-04 has recordings" })).toHaveClass("has-recordings");
   });
 
-  it("shows every mounted stream in settings and saves aliases and visibility", async () => {
+  it("shows every mounted stream in settings and saves camera configuration globally", async () => {
     mocks.listCameras.mockResolvedValue([
       {
         id: "front-main",
@@ -191,6 +236,7 @@ describe("App", () => {
         enabled: true,
         clipCount: 1,
         recordedDays: 1,
+        recordedDates: ["2026-05-04"],
         totalSeconds: 600,
         totalBytes: 134217728,
         latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
@@ -204,12 +250,15 @@ describe("App", () => {
         enabled: false,
         clipCount: 0,
         recordedDays: 0,
+        recordedDates: [],
         totalSeconds: 0,
         totalBytes: 0,
         latestEndAtMs: null,
       },
     ]);
-    mocks.updateCamera.mockResolvedValueOnce({ alias: "车库入口", enabled: false });
+    mocks.updateCamera
+      .mockResolvedValueOnce({ alias: "车库入口", enabled: false })
+      .mockResolvedValueOnce({ alias: "侧院", enabled: false });
 
     render(<App />);
 
@@ -220,18 +269,25 @@ describe("App", () => {
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("/recordings/B88880A344EB · channel 00")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save camera" })).not.toBeInTheDocument();
 
     const frontCard = screen.getByLabelText("Camera setting 前院主摄");
     const aliasInput = within(frontCard).getByLabelText("Alias");
     await userEvent.clear(aliasInput);
     await userEvent.type(aliasInput, "车库入口");
     await userEvent.click(within(frontCard).getByLabelText("Show in playback"));
-    await userEvent.click(within(frontCard).getByRole("button", { name: "Save camera" }));
 
-    await waitFor(() =>
-      expect(mocks.updateCamera).toHaveBeenCalledWith("front-main", { alias: "车库入口", enabled: false }),
-    );
-    expect(await within(frontCard).findByText("Saved")).toBeInTheDocument();
+    const sideCard = screen.getByLabelText("Camera setting 侧院隐藏");
+    const sideAliasInput = within(sideCard).getByLabelText("Alias");
+    await userEvent.clear(sideAliasInput);
+    await userEvent.type(sideAliasInput, "侧院");
+
+    await userEvent.click(screen.getByRole("button", { name: "Save configuration" }));
+
+    await waitFor(() => expect(mocks.updateCamera).toHaveBeenCalledTimes(2));
+    expect(mocks.updateCamera).toHaveBeenNthCalledWith(1, "front-main", { alias: "车库入口", enabled: false });
+    expect(mocks.updateCamera).toHaveBeenNthCalledWith(2, "side-hidden", { alias: "侧院", enabled: false });
+    expect(await screen.findByText("Saved 2 cameras")).toBeInTheDocument();
 
     await userEvent.click(within(screen.getByLabelText("Camera list")).getByRole("button", { name: "Playback" }));
     expect(screen.queryByRole("button", { name: /车库入口/ })).not.toBeInTheDocument();
@@ -267,7 +323,7 @@ describe("App", () => {
 
     const sidebar = screen.getByLabelText("Camera list");
     expect(await within(sidebar).findByText("Image version")).toBeInTheDocument();
-    expect(within(sidebar).getByText("v0.1.4")).toBeInTheDocument();
+    expect(within(sidebar).getByText(`v${packageJson.version}`)).toBeInTheDocument();
   });
 
   it("keeps refresh available after camera loading fails", async () => {
@@ -296,6 +352,7 @@ describe("App", () => {
           enabled: true,
           clipCount: 1,
           recordedDays: 1,
+          recordedDates: ["2026-05-04"],
           totalSeconds: 600,
           totalBytes: 134217728,
           latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
@@ -352,13 +409,22 @@ describe("App", () => {
     const videoPlaceholderRule = styles.match(/\.video-placeholder\s*\{[^}]+\}/)?.[0] ?? "";
     const dayTimelineTrackRule = styles.match(/\.day-timeline-track\s*\{[^}]+\}/)?.[0] ?? "";
     const dayTimelineSpanRule = styles.match(/\.day-timeline-span\s*\{[^}]+\}/)?.[0] ?? "";
+    const dateControlRule = styles.match(/\.date-control\s*\{[^}]+\}/)?.[0] ?? "";
+    const dateControlSpanRule = styles.match(/\.date-control span\s*\{[^}]+\}/)?.[0] ?? "";
+    const virtualPlayerRule = styles.match(/\.virtual-player\s*\{[^}]+\}/)?.[0] ?? "";
+    const virtualPlayerStageRule = styles.match(/\.virtual-player-stage\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(playbackPanelRule).toContain("display: flex");
     expect(playbackPanelRule).toContain("height: 100vh");
     expect(playbackPanelRule).not.toContain("grid-template-rows");
     expect(videoPlaceholderRule).toContain("56vh");
+    expect(virtualPlayerRule).toContain("flex: 0 0 clamp(340px, 56vh, 760px)");
+    expect(virtualPlayerRule).toContain("grid-template-rows: minmax(0, 1fr) auto auto");
+    expect(virtualPlayerStageRule).toContain("min-height: 0");
     expect(dayTimelineTrackRule).toContain("linear-gradient");
     expect(dayTimelineSpanRule).toContain("box-shadow");
+    expect(dateControlRule).toContain("white-space: nowrap");
+    expect(dateControlSpanRule).toContain("white-space: nowrap");
   });
 
   it("does not render pending playback after refresh starts and then fails", async () => {
@@ -425,6 +491,39 @@ describe("App", () => {
     await expectPlaybackLoadedWithoutTimelineSlider();
   });
 
+  it("keeps the current player mounted while a new timeline selection is loading", async () => {
+    let resolveNextPlayback: (plan: PlaybackPlan) => void = () => {};
+    const pendingNextPlayback = new Promise<PlaybackPlan>((resolve) => {
+      resolveNextPlayback = resolve;
+    });
+    mocks.getTimeline.mockImplementationOnce(async (_cameraId, timelineDate) => [
+      shanghaiSpan(timelineDate, "12:00:00", "13:00:00"),
+      shanghaiSpan(timelineDate, "14:00:00", "15:00:00"),
+    ]);
+    mocks.getPlaybackPlan
+      .mockResolvedValueOnce(playbackPlan(shanghaiTimestamp("2026-05-04", "12:00:00")))
+      .mockReturnValueOnce(pendingNextPlayback);
+
+    const { container } = render(<App />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Recorded span 12:00 - 13:00" }));
+    await expectPlaybackLoadedWithoutTimelineSlider();
+
+    const currentVideo = container.querySelector("video");
+    expect(currentVideo).toBeInstanceOf(HTMLVideoElement);
+
+    await userEvent.click(screen.getByRole("button", { name: "Recorded span 14:00 - 15:00" }));
+    await waitFor(() => expect(mocks.getPlaybackPlan).toHaveBeenCalledTimes(2));
+
+    expect(screen.queryByLabelText("Video player placeholder")).not.toBeInTheDocument();
+    expect(container.querySelector("video")).toBe(currentVideo);
+
+    await act(async () => {
+      resolveNextPlayback(playbackPlan(shanghaiTimestamp("2026-05-04", "14:00:00")));
+      await pendingNextPlayback;
+    });
+  });
+
   it("requests playback for a custom local time range", async () => {
     mocks.getPlaybackPlan.mockResolvedValueOnce(playbackPlan(shanghaiTimestamp("2026-05-04", "10:05:00")));
 
@@ -476,6 +575,7 @@ describe("App", () => {
         enabled: true,
         clipCount: 1,
         recordedDays: 1,
+        recordedDates: ["2026-05-04"],
         totalSeconds: 600,
         totalBytes: 134217728,
         latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
@@ -489,6 +589,7 @@ describe("App", () => {
         enabled: true,
         clipCount: 1,
         recordedDays: 1,
+        recordedDates: ["2026-05-04"],
         totalSeconds: 600,
         totalBytes: 134217728,
         latestEndAtMs: new Date("2026-05-04T04:10:00.000Z").getTime(),

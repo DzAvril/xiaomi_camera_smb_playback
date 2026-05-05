@@ -4,8 +4,10 @@ import { PLAYBACK_RATES, type PlaybackPlan, type PlaybackRate } from "../../shar
 import { findNextSegmentAfter, findSegmentAtVirtualTime } from "./virtualPlayback";
 
 type VirtualPlayerProps = {
+  isLoading?: boolean;
   onWallTimeChange?: (timestampMs: number | null) => void;
   plan: PlaybackPlan | null;
+  seekToWallTimeMs?: number | null;
 };
 
 type ResolvedVirtualTime = {
@@ -105,7 +107,7 @@ function PreloadVideo({ src }: { src: string }) {
   );
 }
 
-export function VirtualPlayer({ onWallTimeChange, plan }: VirtualPlayerProps) {
+export function VirtualPlayer({ isLoading = false, onWallTimeChange, plan, seekToWallTimeMs = null }: VirtualPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const shouldAutoplayRef = useRef(false);
   const [virtualSeconds, setVirtualSeconds] = useState(0);
@@ -176,6 +178,20 @@ export function VirtualPlayer({ onWallTimeChange, plan }: VirtualPlayerProps) {
     playbackRate,
   ]);
 
+  useEffect(() => {
+    if (!plan || seekToWallTimeMs === null) {
+      return;
+    }
+
+    const requestedSeconds = (seekToWallTimeMs - plan.startAtMs) / 1000;
+    if (requestedSeconds < 0 || requestedSeconds > plan.durationSeconds) {
+      return;
+    }
+
+    shouldAutoplayRef.current = true;
+    moveToVirtualTime(requestedSeconds);
+  }, [plan, seekToWallTimeMs]);
+
   function moveToVirtualTime(requestedSeconds: number) {
     if (!plan) {
       return;
@@ -240,7 +256,7 @@ export function VirtualPlayer({ onWallTimeChange, plan }: VirtualPlayerProps) {
   }
 
   return (
-    <section className="virtual-player" aria-label="Virtual player">
+    <section className="virtual-player" aria-busy={isLoading} aria-label="Virtual player">
       <div className="virtual-player-stage">
         {currentMatch ? (
           <video

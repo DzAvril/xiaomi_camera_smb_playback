@@ -42,14 +42,23 @@ function formatBytes(bytes: number): string {
 }
 
 function summarize(cameras: CameraStream[]) {
-  return cameras.reduce(
-    (totals, camera) => ({
-      days: totals.days + camera.recordedDays,
-      seconds: totals.seconds + camera.totalSeconds,
-      bytes: totals.bytes + camera.totalBytes,
+  const recordedDates = new Set<string>();
+
+  for (const camera of cameras) {
+    for (const date of camera.recordedDates) {
+      recordedDates.add(date);
+    }
+  }
+
+  const totals = cameras.reduce(
+    (current, camera) => ({
+      seconds: current.seconds + camera.totalSeconds,
+      bytes: current.bytes + camera.totalBytes,
     }),
-    { days: 0, seconds: 0, bytes: 0 },
+    { seconds: 0, bytes: 0 },
   );
+
+  return { days: recordedDates.size, ...totals };
 }
 
 export function CameraSidebar({
@@ -107,9 +116,6 @@ export function CameraSidebar({
                   <span className="camera-row-title">
                     <Video aria-hidden="true" size={15} />
                     <span>{camera.alias}</span>
-                  </span>
-                  <span className="camera-row-meta">
-                    {camera.rootId} · {camera.channel}
                   </span>
                   <span className="camera-row-sub">
                     {hasRecordings ? `${camera.clipCount} clips · ${formatDuration(camera.totalSeconds)}` : "no recordings"}

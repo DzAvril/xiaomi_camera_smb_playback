@@ -188,6 +188,7 @@ describe("catalog", () => {
       expect(catalog.listCameras()[0]).toMatchObject({
         id: cameraId,
         recordedDays: 1,
+        recordedDates: ["2026-05-04"],
       });
 
       catalog.close();

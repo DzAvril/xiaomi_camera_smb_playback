@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlaybackPlan, PlaybackSegment } from "../../src/shared/types";
@@ -75,6 +75,20 @@ describe("VirtualPlayer", () => {
     await userEvent.click(screen.getByRole("button", { name: "Back 10 seconds" }));
     expect(video.currentTime).toBe(0);
     expect(screen.getByText("12:00:00")).toBeInTheDocument();
+  });
+
+  it("seeks an already loaded plan in place when a wall time is requested", async () => {
+    const plan = playbackPlan([segment("clip-a", 0, 600, 0)]);
+    const { rerender } = render(<VirtualPlayer plan={plan} />);
+
+    const video = document.querySelector("video")!;
+    fireEvent.loadedMetadata(video);
+
+    rerender(<VirtualPlayer plan={plan} seekToWallTimeMs={plan.startAtMs + 120_000} />);
+
+    await waitFor(() => expect(video.currentTime).toBe(120));
+    expect(document.querySelector("video")).toBe(video);
+    expect(screen.getByText("12:02:00")).toBeInTheDocument();
   });
 
   it("preloads the next clip near the current clip end and clears it when playback exits", () => {

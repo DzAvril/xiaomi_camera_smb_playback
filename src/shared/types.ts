@@ -11,6 +11,7 @@ export type CameraStream = {
   enabled: boolean;
   clipCount: number;
   recordedDays: number;
+  recordedDates: string[];
   totalSeconds: number;
   totalBytes: number;
   latestEndAtMs: number | null;

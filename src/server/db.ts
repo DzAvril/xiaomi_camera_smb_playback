@@ -187,7 +187,8 @@ export function openCatalog(databasePath: string) {
             COALESCE(SUM(c.duration_seconds), 0) AS total_seconds,
             COALESCE(SUM(c.size_bytes), 0) AS total_bytes,
             MAX(c.end_at_ms) AS latest_end_at_ms,
-            COUNT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000 + 8 * 60 * 60, 'unixepoch')) AS recorded_days
+            COUNT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000 + 8 * 60 * 60, 'unixepoch')) AS recorded_days,
+            GROUP_CONCAT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000 + 8 * 60 * 60, 'unixepoch')) AS recorded_dates
           FROM camera_streams cs
           LEFT JOIN clips c ON c.camera_id = cs.id
           GROUP BY cs.id
@@ -201,6 +202,7 @@ export function openCatalog(databasePath: string) {
           total_bytes: number;
           latest_end_at_ms: number | null;
           recorded_days: number;
+          recorded_dates: string | null;
         }
       >;
 
@@ -208,6 +210,7 @@ export function openCatalog(databasePath: string) {
         ...toCameraMetadata(row),
         clipCount: row.clip_count,
         recordedDays: row.recorded_days,
+        recordedDates: row.recorded_dates ? row.recorded_dates.split(",").sort() : [],
         totalSeconds: row.total_seconds,
         totalBytes: row.total_bytes,
         latestEndAtMs: row.latest_end_at_ms,

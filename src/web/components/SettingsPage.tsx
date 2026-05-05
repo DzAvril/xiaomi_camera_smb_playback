@@ -29,7 +29,8 @@ function hasCameraChanges(camera: CameraStream, draft: CameraDraft | undefined):
 
 export function SettingsPage({ cameras, onChangePassword, onUpdateCamera }: SettingsPageProps) {
   const [drafts, setDrafts] = useState<Record<string, CameraDraft>>(() => buildDrafts(cameras));
-  const [cameraSaveState, setCameraSaveState] = useState<Record<string, CameraSaveState>>({});
+  const [cameraSaveState, setCameraSaveState] = useState<CameraSaveState>("idle");
+  const [cameraStatus, setCameraStatus] = useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmedPassword, setConfirmedPassword] = useState("");
@@ -45,6 +46,11 @@ export function SettingsPage({ cameras, onChangePassword, onUpdateCamera }: Sett
     return `${enabled} of ${cameras.length} visible`;
   }, [cameras]);
 
+  const changedCameras = useMemo(
+    () => cameras.filter((camera) => hasCameraChanges(camera, drafts[camera.id])),
+    [cameras, drafts],
+  );
+
   function updateDraft(cameraId: string, update: Partial<CameraDraft>) {
     setDrafts((current) => ({
       ...current,
@@ -53,24 +59,42 @@ export function SettingsPage({ cameras, onChangePassword, onUpdateCamera }: Sett
         ...update,
       },
     }));
-    setCameraSaveState((current) => ({ ...current, [cameraId]: "idle" }));
+    setCameraSaveState("idle");
+    setCameraStatus(null);
   }
 
-  async function saveCamera(camera: CameraStream) {
-    const draft = drafts[camera.id] ?? { alias: camera.alias, enabled: camera.enabled };
-    const alias = draft.alias.trim();
-    if (!alias) {
-      setCameraSaveState((current) => ({ ...current, [camera.id]: "error" }));
+  async function saveCameraSettings() {
+    if (changedCameras.length === 0 || cameraSaveState === "saving") {
       return;
     }
 
-    setCameraSaveState((current) => ({ ...current, [camera.id]: "saving" }));
+    const updates = changedCameras.map((camera) => {
+      const draft = drafts[camera.id] ?? { alias: camera.alias, enabled: camera.enabled };
+      return {
+        camera,
+        update: {
+          alias: draft.alias.trim(),
+          enabled: draft.enabled,
+        },
+      };
+    });
+
+    if (updates.some(({ update }) => !update.alias)) {
+      setCameraSaveState("error");
+      setCameraStatus("Alias cannot be empty");
+      return;
+    }
+
+    setCameraSaveState("saving");
+    setCameraStatus(null);
 
     try {
-      await onUpdateCamera(camera.id, { alias, enabled: draft.enabled });
-      setCameraSaveState((current) => ({ ...current, [camera.id]: "saved" }));
+      await Promise.all(updates.map(({ camera, update }) => onUpdateCamera(camera.id, update)));
+      setCameraSaveState("saved");
+      setCameraStatus(`Saved ${updates.length} ${updates.length === 1 ? "camera" : "cameras"}`);
     } catch {
-      setCameraSaveState((current) => ({ ...current, [camera.id]: "error" }));
+      setCameraSaveState("error");
+      setCameraStatus("Save failed");
     }
   }
 
@@ -117,8 +141,21 @@ export function SettingsPage({ cameras, onChangePassword, onUpdateCamera }: Sett
               <p className="eyebrow">Mounted streams</p>
               <h2 id="mounted-streams-title">Cameras</h2>
             </div>
-            <strong>{cameraSummary}</strong>
+            <div className="camera-settings-actions">
+              <strong>{cameraSummary}</strong>
+              <button
+                className="icon-button settings-save-button"
+                disabled={changedCameras.length === 0 || cameraSaveState === "saving"}
+                onClick={() => void saveCameraSettings()}
+                type="button"
+              >
+                <Save aria-hidden="true" size={15} />
+                {cameraSaveState === "saving" ? "Saving" : "Save configuration"}
+              </button>
+            </div>
           </div>
+
+          {cameraStatus ? <div className={`settings-status is-${cameraSaveState}`} role="status">{cameraStatus}</div> : null}
 
           <div className="camera-settings-list">
             {cameras.length === 0 ? (
@@ -126,8 +163,6 @@ export function SettingsPage({ cameras, onChangePassword, onUpdateCamera }: Sett
             ) : (
               cameras.map((camera) => {
                 const draft = drafts[camera.id] ?? { alias: camera.alias, enabled: camera.enabled };
-                const state = cameraSaveState[camera.id] ?? "idle";
-                const hasChanges = hasCameraChanges(camera, draft);
 
                 return (
                   <section className="camera-settings-card" aria-label={`Camera setting ${camera.alias}`} key={camera.id}>
@@ -163,27 +198,12 @@ export function SettingsPage({ cameras, onChangePassword, onUpdateCamera }: Sett
                         />
                         <span>Show in playback</span>
                       </label>
-
-                      <button
-                        className="icon-button settings-save-button"
-                        disabled={!hasChanges || state === "saving"}
-                        onClick={() => void saveCamera(camera)}
-                        type="button"
-                      >
-                        <Save aria-hidden="true" size={15} />
-                        Save camera
-                      </button>
                     </div>
 
                     <div className="camera-settings-footer">
                       <span>{camera.clipCount} clips</span>
                       <span>{cameraFormatters.formatDuration(camera.totalSeconds)}</span>
                       <span>{cameraFormatters.formatBytes(camera.totalBytes)}</span>
-                      {state !== "idle" ? (
-                        <strong className={`settings-inline-status is-${state}`}>
-                          {state === "saving" ? "Saving" : state === "saved" ? "Saved" : "Save failed"}
-                        </strong>
-                      ) : null}
                     </div>
                   </section>
                 );

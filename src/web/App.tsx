@@ -72,6 +72,7 @@ export default function App() {
   const [selectedAtMs, setSelectedAtMs] = useState<number | null>(null);
   const [playheadAtMs, setPlayheadAtMs] = useState<number | null>(null);
   const [playbackPlan, setPlaybackPlan] = useState<PlaybackPlan | null>(null);
+  const [playbackSeekAtMs, setPlaybackSeekAtMs] = useState<number | null>(null);
   const [isLoadingPlayback, setIsLoadingPlayback] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [isLoadingCameras, setIsLoadingCameras] = useState(true);
@@ -84,6 +85,7 @@ export default function App() {
     setSelectedAtMs(null);
     setPlayheadAtMs(null);
     setPlaybackPlan(null);
+    setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
   }
@@ -192,6 +194,7 @@ export default function App() {
     setSelectedAtMs(null);
     setPlayheadAtMs(null);
     setPlaybackPlan(null);
+    setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
   }
@@ -204,6 +207,7 @@ export default function App() {
     setSelectedAtMs(null);
     setPlayheadAtMs(null);
     setPlaybackPlan(null);
+    setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
   }
@@ -216,6 +220,7 @@ export default function App() {
       setSelectedAtMs(null);
       setPlayheadAtMs(null);
       setPlaybackPlan(null);
+      setPlaybackSeekAtMs(null);
       setPlaybackError(null);
       setIsLoadingPlayback(false);
       setIsLoadingTimeline(false);
@@ -232,6 +237,7 @@ export default function App() {
       setSelectedAtMs(null);
       setPlayheadAtMs(null);
       setPlaybackPlan(null);
+      setPlaybackSeekAtMs(null);
       setPlaybackError(null);
       setIsLoadingPlayback(false);
       setError(null);
@@ -303,8 +309,29 @@ export default function App() {
     };
   }, [selectedCamera]);
 
-  async function loadPlaybackRange(start: string, end: string, selectedTimestampMs: number) {
+  async function loadPlaybackRange(
+    start: string,
+    end: string,
+    selectedTimestampMs: number,
+    options: { allowInPlaceSeek?: boolean } = {},
+  ) {
     if (!selectedCamera) {
+      return;
+    }
+
+    const canSeekInLoadedPlan =
+      options.allowInPlaceSeek === true &&
+      playbackPlan !== null &&
+      selectedTimestampMs >= playbackPlan.startAtMs &&
+      selectedTimestampMs < playbackPlan.endAtMs;
+
+    setSelectedAtMs(selectedTimestampMs);
+    setPlayheadAtMs(selectedTimestampMs);
+    setPlaybackError(null);
+
+    if (canSeekInLoadedPlan) {
+      setPlaybackSeekAtMs(selectedTimestampMs);
+      setIsLoadingPlayback(false);
       return;
     }
 
@@ -312,16 +339,13 @@ export default function App() {
     playbackRequestId.current = requestId;
     const cameraId = selectedCamera.id;
 
-    setSelectedAtMs(selectedTimestampMs);
-    setPlayheadAtMs(selectedTimestampMs);
-    setPlaybackPlan(null);
-    setPlaybackError(null);
     setIsLoadingPlayback(true);
 
     try {
       const nextPlan = await api.getPlaybackPlan(cameraId, start, end);
       if (playbackRequestId.current === requestId) {
         setPlaybackPlan(nextPlan);
+        setPlaybackSeekAtMs(selectedTimestampMs);
       }
     } catch (loadError) {
       if (playbackRequestId.current === requestId) {
@@ -343,6 +367,7 @@ export default function App() {
       new Date(timestampMs).toISOString(),
       new Date(timestampMs + PLAYBACK_WINDOW_MS).toISOString(),
       timestampMs,
+      { allowInPlaceSeek: true },
     );
   }
 
@@ -362,6 +387,7 @@ export default function App() {
     setSelectedAtMs(null);
     setPlayheadAtMs(null);
     setPlaybackPlan(null);
+    setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
     setIsRefreshing(true);
@@ -475,13 +501,9 @@ export default function App() {
             </h1>
             {view === "settings" ? (
               <p className="camera-context">{cameras.length} mounted streams indexed.</p>
-            ) : selectedCamera ? (
-              <p className="camera-context">
-                {selectedCamera.rootPath} · channel {selectedCamera.channel}
-              </p>
-            ) : (
+            ) : !selectedCamera ? (
               <p className="camera-context">Index cameras to begin reviewing recordings.</p>
-            )}
+            ) : null}
           </div>
 
           <div className="header-actions">
@@ -515,7 +537,12 @@ export default function App() {
         ) : (
           <>
             {playbackPlan ? (
-              <VirtualPlayer onWallTimeChange={updatePlaybackWallTime} plan={playbackPlan} />
+              <VirtualPlayer
+                isLoading={isLoadingPlayback}
+                onWallTimeChange={updatePlaybackWallTime}
+                plan={playbackPlan}
+                seekToWallTimeMs={playbackSeekAtMs}
+              />
             ) : (
               <section className="video-placeholder" aria-busy={isLoadingPlayback} aria-label="Video player placeholder">
                 <MonitorPlay aria-hidden="true" size={42} />
