@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ClipRecord } from "../../src/shared/types";
 import { buildPlaybackPlan } from "../../src/server/playbackPlan";
 
-function clip(id: string, start: Date, end: Date, mediaStartSeconds = 0): ClipRecord {
+function clip(id: string, start: Date, end: Date, mediaStartSeconds = 0, sourceFileId?: string): ClipRecord {
   return {
     id,
     cameraId: "cam-00",
@@ -14,7 +14,8 @@ function clip(id: string, start: Date, end: Date, mediaStartSeconds = 0): ClipRe
     durationSeconds: (end.getTime() - start.getTime()) / 1000,
     sizeBytes: 100,
     mtimeMs: 1,
-    mediaStartSeconds
+    mediaStartSeconds,
+    sourceFileId
   };
 }
 
@@ -194,6 +195,25 @@ describe("buildPlaybackPlan", () => {
 
     expect(plan.segments.map((segment) => [segment.clipId, segment.clipOffsetSeconds, segment.playableSeconds])).toEqual([
       ["jump", 3630, 15]
+    ]);
+  });
+
+  it("keeps a stable file URL for logical clips from the same physical file", () => {
+    const start = at(10, 0).getTime();
+    const end = at(10, 2).getTime();
+    const plan = buildPlaybackPlan(
+      "cam-00",
+      [
+        clip("physical-a-0", at(10, 0), at(10, 1), 0, "physical-a"),
+        clip("physical-a-1", at(10, 1), at(10, 2), 60, "physical-a")
+      ],
+      start,
+      end
+    );
+
+    expect(plan.segments.map((segment) => [segment.clipId, segment.fileUrl, segment.clipOffsetSeconds])).toEqual([
+      ["physical-a-0", "/api/clips/physical-a-0/file", 0],
+      ["physical-a-1", "/api/clips/physical-a-0/file", 60]
     ]);
   });
 });

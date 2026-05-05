@@ -1,5 +1,5 @@
 import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
-import { type MouseEvent, type PointerEvent, useRef, useState } from "react";
+import { type MouseEvent, type PointerEvent, type WheelEvent, useEffect, useRef, useState } from "react";
 import type { TimelineSpan } from "../../shared/types";
 
 const DAY_MS = 86_400_000;
@@ -11,8 +11,11 @@ const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 type DayTimelineProps = {
   date: string;
+  label?: string;
   spans: TimelineSpan[];
   selectedAtMs: number | null;
+  timelineEndAtMs?: number;
+  timelineStartAtMs?: number;
   onSelectTime(timestampMs: number): void;
 };
 
@@ -30,6 +33,12 @@ type PinchState = {
   centerTimestampMs: number;
   startDistance: number;
   startZoom: number;
+};
+
+type MouseDragState = {
+  didPan: boolean;
+  startClientX: number;
+  startViewStartMs: number;
 };
 
 function clampPercent(value: number): number {
@@ -52,12 +61,12 @@ function clampZoom(value: number): number {
   return clamp(value, MIN_ZOOM, MAX_ZOOM);
 }
 
-function getVisibleDurationMs(zoom: number): number {
-  return DAY_MS / zoom;
+function getVisibleDurationMs(zoom: number, timelineDurationMs: number): number {
+  return timelineDurationMs / zoom;
 }
 
-function clampViewStartMs(value: number, zoom: number): number {
-  return clamp(value, 0, DAY_MS - getVisibleDurationMs(zoom));
+function clampViewStartMs(value: number, zoom: number, timelineDurationMs: number): number {
+  return clamp(value, 0, timelineDurationMs - getVisibleDurationMs(zoom, timelineDurationMs));
 }
 
 function getShanghaiDayStart(date: string): number {
@@ -70,32 +79,43 @@ function getShanghaiDayStart(date: string): number {
   return Date.UTC(Number(year), Number(month) - 1, Number(day)) - SHANGHAI_OFFSET_MS;
 }
 
-function formatTime(timestampMs: number, dayStartMs: number): string {
-  const dayEndMs = dayStartMs + DAY_MS;
+function getShanghaiParts(timestampMs: number): { day: string; hour: string; minute: string; month: string; second: string } {
+  const value = new Date(timestampMs + SHANGHAI_OFFSET_MS);
 
-  if (timestampMs >= dayEndMs) {
-    return "24:00";
-  }
-
-  const value = new Date(Math.max(dayStartMs, timestampMs) + SHANGHAI_OFFSET_MS);
-  return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}`;
+  return {
+    day: String(value.getUTCDate()).padStart(2, "0"),
+    hour: String(value.getUTCHours()).padStart(2, "0"),
+    minute: String(value.getUTCMinutes()).padStart(2, "0"),
+    month: String(value.getUTCMonth() + 1).padStart(2, "0"),
+    second: String(value.getUTCSeconds()).padStart(2, "0"),
+  };
 }
 
-function formatPreciseTime(timestampMs: number, dayStartMs: number): string {
-  const dayEndMs = dayStartMs + DAY_MS;
-
-  if (timestampMs >= dayEndMs) {
-    return "24:00:00";
-  }
-
-  const value = new Date(Math.max(dayStartMs, timestampMs) + SHANGHAI_OFFSET_MS);
-  return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}:${String(
-    value.getUTCSeconds(),
+function getShanghaiDateKey(timestampMs: number): string {
+  const value = new Date(timestampMs + SHANGHAI_OFFSET_MS);
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    value.getUTCDate(),
   ).padStart(2, "0")}`;
 }
 
-function toPercent(timestampMs: number, dayStartMs: number): number {
-  return clampPercent(((timestampMs - dayStartMs) / DAY_MS) * 100);
+function formatTime(timestampMs: number, timelineEndMs: number, includeDate: boolean): string {
+  if (!includeDate && timestampMs >= timelineEndMs) {
+    return "24:00";
+  }
+
+  const value = getShanghaiParts(timestampMs);
+  const time = `${value.hour}:${value.minute}`;
+  return includeDate ? `${value.month}-${value.day} ${time}` : time;
+}
+
+function formatPreciseTime(timestampMs: number, timelineEndMs: number, includeDate: boolean): string {
+  if (!includeDate && timestampMs >= timelineEndMs) {
+    return "24:00:00";
+  }
+
+  const value = getShanghaiParts(timestampMs);
+  const time = `${value.hour}:${value.minute}:${value.second}`;
+  return includeDate ? `${value.month}-${value.day} ${time}` : time;
 }
 
 function toVisiblePercent(timestampMs: number, visibleStartMs: number, visibleDurationMs: number): number {
@@ -135,8 +155,8 @@ function getSpanPosition(
   };
 }
 
-function getSpanLabel(span: TimelineSpan, dayStartMs: number): string {
-  return `${formatTime(span.startAtMs, dayStartMs)} - ${formatTime(span.endAtMs, dayStartMs)}`;
+function getSpanLabel(startAtMs: number, endAtMs: number, timelineEndMs: number, includeDate: boolean): string {
+  return `${formatTime(startAtMs, timelineEndMs, includeDate)} - ${formatTime(endAtMs, timelineEndMs, includeDate)}`;
 }
 
 function getSpanTimestampFromClientX(
@@ -183,28 +203,60 @@ function isTouchSelectionPointer(event: PointerEvent<HTMLElement>): boolean {
   return event.pointerType !== "mouse";
 }
 
-export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTimelineProps) {
+export function DayTimeline({
+  date,
+  label = "Day timeline",
+  spans,
+  selectedAtMs,
+  timelineEndAtMs,
+  timelineStartAtMs,
+  onSelectTime,
+}: DayTimelineProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const activePointersRef = useRef(new Map<number, PointerPosition>());
   const dragPointerIdRef = useRef<number | null>(null);
+  const mouseDragRef = useRef<MouseDragState | null>(null);
   const pinchRef = useRef<PinchState | null>(null);
   const suppressClicksUntilRef = useRef(0);
   const [hoveredTime, setHoveredTime] = useState<{ left: number; timestampMs: number } | null>(null);
   const [viewStartMs, setViewStartMs] = useState(0);
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const dayStartMs = getShanghaiDayStart(date);
-  const visibleDurationMs = getVisibleDurationMs(zoom);
-  const clampedViewStartMs = clampViewStartMs(viewStartMs, zoom);
-  const visibleStartMs = dayStartMs + clampedViewStartMs;
+  const timelineStartMs = timelineStartAtMs ?? dayStartMs;
+  const rawTimelineEndMs = timelineEndAtMs && timelineEndAtMs > timelineStartMs ? timelineEndAtMs : timelineStartMs + DAY_MS;
+  const timelineEndMs = rawTimelineEndMs;
+  const timelineDurationMs = Math.max(1, timelineEndMs - timelineStartMs);
+  const includeDateInLabels = getShanghaiDateKey(timelineStartMs) !== getShanghaiDateKey(timelineEndMs - 1);
+  const visibleDurationMs = getVisibleDurationMs(zoom, timelineDurationMs);
+  const clampedViewStartMs = clampViewStartMs(viewStartMs, zoom, timelineDurationMs);
+  const visibleStartMs = timelineStartMs + clampedViewStartMs;
   const visibleEndMs = visibleStartMs + visibleDurationMs;
   const selectedVisibleLeft =
     selectedAtMs === null || selectedAtMs < visibleStartMs || selectedAtMs > visibleEndMs
       ? null
       : toVisiblePercent(selectedAtMs, visibleStartMs, visibleDurationMs);
-  const visibleTimeRangeLabel = `${formatTime(visibleStartMs, dayStartMs)} - ${formatTime(visibleEndMs, dayStartMs)}`;
+  const visibleTimeRangeLabel = `${formatTime(visibleStartMs, timelineEndMs, includeDateInLabels)} - ${formatTime(
+    visibleEndMs,
+    timelineEndMs,
+    includeDateInLabels,
+  )}`;
   const tickLabels = Array.from({ length: 5 }, (_, index) =>
-    formatTime(visibleStartMs + (visibleDurationMs / 4) * index, dayStartMs),
+    formatTime(visibleStartMs + (visibleDurationMs / 4) * index, timelineEndMs, includeDateInLabels),
   );
+
+  useEffect(() => {
+    setZoom(MIN_ZOOM);
+    setViewStartMs(0);
+  }, [timelineEndMs, timelineStartMs]);
+
+  useEffect(() => {
+    if (selectedAtMs === null || zoom <= MIN_ZOOM || !Number.isFinite(timelineStartMs)) {
+      return;
+    }
+
+    const selectedOffsetMs = clamp(selectedAtMs - timelineStartMs, 0, timelineDurationMs);
+    setViewStartMs(clampViewStartMs(selectedOffsetMs - visibleDurationMs / 2, zoom, timelineDurationMs));
+  }, [selectedAtMs, timelineDurationMs, timelineStartMs, visibleDurationMs, zoom]);
 
   function getTimestampFromClientX(clientX: number): { left: number; timestampMs: number } | null {
     const track = trackRef.current;
@@ -285,11 +337,11 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
   function applyZoom(nextZoom: number, centerTimestampMs: number) {
     const clampedZoom = clampZoom(nextZoom);
-    const nextVisibleDurationMs = getVisibleDurationMs(clampedZoom);
-    const centerOffsetMs = clamp(centerTimestampMs - dayStartMs, 0, DAY_MS);
+    const nextVisibleDurationMs = getVisibleDurationMs(clampedZoom, timelineDurationMs);
+    const centerOffsetMs = clamp(centerTimestampMs - timelineStartMs, 0, timelineDurationMs);
 
     setZoom(clampedZoom);
-    setViewStartMs(clampViewStartMs(centerOffsetMs - nextVisibleDurationMs / 2, clampedZoom));
+    setViewStartMs(clampViewStartMs(centerOffsetMs - nextVisibleDurationMs / 2, clampedZoom, timelineDurationMs));
   }
 
   function zoomIn() {
@@ -324,6 +376,17 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
   function handlePointerDown(event: PointerEvent<HTMLElement>) {
     if (!isTouchSelectionPointer(event)) {
+      if (event.button !== 0 || zoom <= MIN_ZOOM) {
+        return;
+      }
+
+      event.preventDefault();
+      mouseDragRef.current = {
+        didPan: false,
+        startClientX: event.clientX,
+        startViewStartMs: clampedViewStartMs,
+      };
+      event.currentTarget.setPointerCapture?.(event.pointerId);
       return;
     }
 
@@ -353,6 +416,26 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
   function handlePointerMove(event: PointerEvent<HTMLElement>) {
     if (!isTouchSelectionPointer(event)) {
+      const drag = mouseDragRef.current;
+      const track = trackRef.current;
+      if (!drag || !track) {
+        return;
+      }
+
+      event.preventDefault();
+      const rect = track.getBoundingClientRect();
+      if (rect.width <= 0) {
+        return;
+      }
+
+      const deltaX = event.clientX - drag.startClientX;
+      if (Math.abs(deltaX) > 3) {
+        drag.didPan = true;
+        suppressClicksUntilRef.current = Date.now() + 250;
+      }
+
+      const msPerPixel = visibleDurationMs / rect.width;
+      setViewStartMs(clampViewStartMs(drag.startViewStartMs - deltaX * msPerPixel, zoom, timelineDurationMs));
       return;
     }
 
@@ -376,6 +459,12 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
   function handlePointerEnd(event: PointerEvent<HTMLElement>) {
     if (!isTouchSelectionPointer(event)) {
+      if (mouseDragRef.current?.didPan) {
+        suppressClicksUntilRef.current = Date.now() + 500;
+      }
+
+      mouseDragRef.current = null;
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
       return;
     }
 
@@ -392,11 +481,39 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
     }
   }
 
+  function handleWheel(event: WheelEvent<HTMLElement>) {
+    const track = trackRef.current;
+    if (!track) {
+      return;
+    }
+
+    const rect = track.getBoundingClientRect();
+    if (rect.width <= 0) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (event.ctrlKey) {
+      const centerTimestampMs = getTimestampFromClientX(event.clientX)?.timestampMs ?? getZoomCenterTimestamp();
+      applyZoom(event.deltaY < 0 ? zoom * ZOOM_STEP : zoom / ZOOM_STEP, centerTimestampMs);
+      return;
+    }
+
+    if (zoom <= MIN_ZOOM) {
+      return;
+    }
+
+    const panPixels = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    const msPerPixel = visibleDurationMs / rect.width;
+    setViewStartMs((current) => clampViewStartMs(current + panPixels * msPerPixel, zoom, timelineDurationMs));
+  }
+
   return (
     <section className="day-timeline" aria-label="Day timeline">
       <div className="day-timeline-header">
         <div className="day-timeline-title">
-          <p className="section-label">Day timeline</p>
+          <p className="section-label">{label}</p>
           <strong>{formatTimelineCount(spans.length)}</strong>
         </div>
         <div className="day-timeline-tools" aria-label="Timeline zoom controls">
@@ -446,18 +563,25 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
+        onWheel={handleWheel}
         ref={trackRef}
       >
         {spans.length === 0 ? (
           <span className="day-timeline-empty" aria-hidden="true" />
         ) : (
           spans.map((span) => {
-            const label = getSpanLabel(span, dayStartMs);
             const position = getSpanPosition(span, visibleStartMs, visibleDurationMs);
 
             if (!position) {
               return null;
             }
+
+            const label = getSpanLabel(
+              position.renderedStartAtMs,
+              position.renderedEndAtMs,
+              timelineEndMs,
+              includeDateInLabels,
+            );
 
             return (
               <button
@@ -478,7 +602,7 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
         {selectedAtMs === null || selectedVisibleLeft === null ? null : (
           <span
-            aria-label={`Selected time ${formatTime(selectedAtMs, dayStartMs)}`}
+            aria-label={`Selected time ${formatTime(selectedAtMs, timelineEndMs, includeDateInLabels)}`}
             className="day-timeline-playhead"
             style={{ left: `${formatPercent(selectedVisibleLeft)}%` }}
           />
@@ -486,11 +610,11 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
 
         {hoveredTime === null ? null : (
           <span
-            aria-label={`Hovered time ${formatPreciseTime(hoveredTime.timestampMs, dayStartMs)}`}
+            aria-label={`Hovered time ${formatPreciseTime(hoveredTime.timestampMs, timelineEndMs, includeDateInLabels)}`}
             className="day-timeline-hover-label"
             style={{ left: `${formatPercent(hoveredTime.left)}%` }}
           >
-            {formatPreciseTime(hoveredTime.timestampMs, dayStartMs)}
+            {formatPreciseTime(hoveredTime.timestampMs, timelineEndMs, includeDateInLabels)}
           </span>
         )}
       </div>

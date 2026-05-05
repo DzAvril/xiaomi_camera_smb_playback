@@ -494,7 +494,8 @@ input:disabled {
   top: calc(100% + 8px);
   right: 0;
   z-index: 5;
-  width: 294px;
+  width: min(294px, calc(100vw - 28px));
+  max-width: calc(100vw - 28px);
   padding: 10px;
   border: 1px solid #c8cec2;
   border-radius: 6px;
@@ -623,7 +624,7 @@ input:disabled {
 .virtual-player {
   display: grid;
   flex: 0 0 clamp(340px, 56vh, 760px);
-  grid-template-rows: minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 10px;
   min-height: clamp(340px, 56vh, 760px);
   min-width: 0;
@@ -631,6 +632,7 @@ input:disabled {
 
 .virtual-player-stage {
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
   overflow: hidden;
   border-radius: 6px;
@@ -664,6 +666,10 @@ input:disabled {
   grid-template-columns: auto auto minmax(0, 1fr);
   gap: 12px;
   align-items: center;
+  min-width: 0;
+  padding: 9px 10px;
+  border-top: 1px solid rgb(255 255 255 / 8%);
+  background: #151b21;
 }
 
 .seek-controls {
@@ -705,7 +711,7 @@ input:disabled {
 
 .wall-time-readout {
   justify-self: end;
-  color: #2f3a33;
+  color: #e9edf1;
   font-size: 13px;
   font-weight: 750;
 }
@@ -1118,6 +1124,11 @@ input:disabled {
   .header-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .calendar-popover {
+    right: auto;
+    left: 0;
   }
 }
 

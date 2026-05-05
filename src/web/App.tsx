@@ -16,6 +16,7 @@ const LOCAL_DATETIME_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}
 const APP_VERSION = packageJson.version;
 type AuthStatus = "checking" | "authenticated" | "required";
 type AppView = "playback" | "settings";
+type TimelineScope = "day" | "range";
 
 function todayInputValue(): string {
   const now = new Date();
@@ -68,6 +69,7 @@ export default function App() {
   const [rangeStart, setRangeStart] = useState(() => defaultRangeStart(todayInputValue()));
   const [rangeEnd, setRangeEnd] = useState(() => defaultRangeEnd(todayInputValue()));
   const [timeline, setTimeline] = useState<TimelineSpan[]>([]);
+  const [timelineScope, setTimelineScope] = useState<TimelineScope>("day");
   const [recordedDays, setRecordedDays] = useState<RecordingDay[]>([]);
   const [selectedAtMs, setSelectedAtMs] = useState<number | null>(null);
   const [playheadAtMs, setPlayheadAtMs] = useState<number | null>(null);
@@ -88,6 +90,7 @@ export default function App() {
     setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
+    setTimelineScope("day");
   }
 
   function requireSignIn() {
@@ -96,6 +99,7 @@ export default function App() {
     setCameras([]);
     setSelectedCameraId(null);
     setTimeline([]);
+    setTimelineScope("day");
     setRecordedDays([]);
     setIsLoadingTimeline(false);
     setIsRefreshing(false);
@@ -173,6 +177,20 @@ export default function App() {
   );
   const recordedDates = useMemo(() => recordedDays.map((day) => day.date), [recordedDays]);
   const timelinePlayheadAtMs = playheadAtMs ?? selectedAtMs;
+  const displayedTimeline = useMemo<TimelineSpan[]>(() => {
+    if (timelineScope !== "range" || !playbackPlan) {
+      return timeline;
+    }
+
+    return playbackPlan.segments.map((segment) => ({
+      startAtMs: segment.wallStartAtMs,
+      endAtMs: segment.wallEndAtMs,
+      durationSeconds: segment.playableSeconds,
+      clipIds: [segment.clipId],
+    }));
+  }, [playbackPlan, timeline, timelineScope]);
+  const timelineStartAtMs = timelineScope === "range" ? playbackPlan?.startAtMs : undefined;
+  const timelineEndAtMs = timelineScope === "range" ? playbackPlan?.endAtMs : undefined;
   const updatePlaybackWallTime = useCallback((timestampMs: number | null) => {
     setPlayheadAtMs(timestampMs);
   }, []);
@@ -197,6 +215,7 @@ export default function App() {
     setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
+    setTimelineScope("day");
   }
 
   function changeDate(nextDate: string) {
@@ -210,12 +229,14 @@ export default function App() {
     setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
+    setTimelineScope("day");
   }
 
   useEffect(() => {
     if (!selectedCamera) {
       playbackRequestId.current += 1;
       setTimeline([]);
+      setTimelineScope("day");
       setRecordedDays([]);
       setSelectedAtMs(null);
       setPlayheadAtMs(null);
@@ -234,6 +255,7 @@ export default function App() {
       playbackRequestId.current += 1;
       setIsLoadingTimeline(true);
       setTimeline([]);
+      setTimelineScope("day");
       setSelectedAtMs(null);
       setPlayheadAtMs(null);
       setPlaybackPlan(null);
@@ -313,7 +335,7 @@ export default function App() {
     start: string,
     end: string,
     selectedTimestampMs: number,
-    options: { allowInPlaceSeek?: boolean } = {},
+    options: { allowInPlaceSeek?: boolean; showRangeTimeline?: boolean } = {},
   ) {
     if (!selectedCamera) {
       return;
@@ -332,6 +354,7 @@ export default function App() {
     if (canSeekInLoadedPlan) {
       setPlaybackSeekAtMs(selectedTimestampMs);
       setIsLoadingPlayback(false);
+      setTimelineScope(options.showRangeTimeline === true ? "range" : "day");
       return;
     }
 
@@ -346,6 +369,7 @@ export default function App() {
       if (playbackRequestId.current === requestId) {
         setPlaybackPlan(nextPlan);
         setPlaybackSeekAtMs(selectedTimestampMs);
+        setTimelineScope(options.showRangeTimeline === true ? "range" : "day");
       }
     } catch (loadError) {
       if (playbackRequestId.current === requestId) {
@@ -367,7 +391,7 @@ export default function App() {
       new Date(timestampMs).toISOString(),
       new Date(timestampMs + PLAYBACK_WINDOW_MS).toISOString(),
       timestampMs,
-      { allowInPlaceSeek: true },
+      { allowInPlaceSeek: true, showRangeTimeline: false },
     );
   }
 
@@ -379,7 +403,9 @@ export default function App() {
       return;
     }
 
-    await loadPlaybackRange(normalizeLocalDateTimeInput(rangeStart), normalizeLocalDateTimeInput(rangeEnd), startAtMs);
+    await loadPlaybackRange(normalizeLocalDateTimeInput(rangeStart), normalizeLocalDateTimeInput(rangeEnd), startAtMs, {
+      showRangeTimeline: true,
+    });
   }
 
   async function refreshIndex() {
@@ -390,6 +416,7 @@ export default function App() {
     setPlaybackSeekAtMs(null);
     setPlaybackError(null);
     setIsLoadingPlayback(false);
+    setTimelineScope("day");
     setIsRefreshing(true);
     setError(null);
 
@@ -562,7 +589,15 @@ export default function App() {
             )}
 
             <div className="day-timeline-region" aria-busy={isLoadingTimeline}>
-              <DayTimeline date={date} spans={timeline} selectedAtMs={timelinePlayheadAtMs} onSelectTime={selectTime} />
+              <DayTimeline
+                date={date}
+                label={timelineScope === "range" ? "Range timeline" : "Day timeline"}
+                onSelectTime={selectTime}
+                selectedAtMs={timelinePlayheadAtMs}
+                spans={displayedTimeline}
+                timelineEndAtMs={timelineEndAtMs}
+                timelineStartAtMs={timelineStartAtMs}
+              />
             </div>
           </>
         )}

@@ -274,4 +274,61 @@ describe("DayTimeline", () => {
     expect(screen.getByText("2x")).toBeInTheDocument();
     expect(screen.getByText("06:00 - 18:00")).toBeInTheDocument();
   });
+
+  it("supports trackpad pinch zoom and two-finger pan", () => {
+    const date = "2026-05-04";
+    renderTimeline(date, [], shanghaiTimestamp(date, "12:00:00"));
+    const track = screen.getByLabelText("Recorded spans");
+
+    track.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 400,
+        top: 0,
+        bottom: 56,
+        width: 400,
+        height: 56,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fireEvent.wheel(track, { clientX: 200, ctrlKey: true, deltaY: -100 });
+
+    expect(screen.getByText("2x")).toBeInTheDocument();
+    expect(screen.getByText("06:00 - 18:00")).toBeInTheDocument();
+
+    fireEvent.wheel(track, { clientX: 200, deltaY: 100 });
+
+    expect(screen.getByText("09:00 - 21:00")).toBeInTheDocument();
+  });
+
+  it("can render a selected range timeline with cross-day labels", () => {
+    const span: TimelineSpan = {
+      startAtMs: shanghaiTimestamp("2026-05-04", "23:30:00"),
+      endAtMs: shanghaiTimestamp("2026-05-05", "00:30:00"),
+      durationSeconds: 3_600,
+      clipIds: ["clip-1"],
+    };
+
+    render(
+      <DayTimeline
+        date="2026-05-04"
+        label="Range timeline"
+        onSelectTime={vi.fn()}
+        selectedAtMs={shanghaiTimestamp("2026-05-05", "00:00:00")}
+        spans={[span]}
+        timelineEndAtMs={shanghaiTimestamp("2026-05-05", "01:00:00")}
+        timelineStartAtMs={shanghaiTimestamp("2026-05-04", "23:00:00")}
+      />,
+    );
+
+    expect(screen.getByText("Range timeline")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Recorded span 05-04 23:30 - 05-05 00:30" })).toHaveStyle({
+      left: "25%",
+      width: "50%",
+    });
+    expect(screen.getByLabelText("Selected time 05-05 00:00")).toHaveStyle({ left: "50%" });
+    expect(screen.getByText("05-04 23:00 - 05-05 01:00")).toBeInTheDocument();
+  });
 });

@@ -13,6 +13,14 @@ export function buildPlaybackPlan(
   const sorted = clips
     .filter((clip) => clip.endAtMs > startAtMs && clip.startAtMs < endAtMs)
     .sort((a, b) => a.startAtMs - b.startAtMs || b.endAtMs - a.endAtMs || a.id.localeCompare(b.id));
+  const fileUrlClipIdBySource = new Map<string, string>();
+
+  for (const clip of sorted) {
+    const sourceKey = clip.sourceFileId ?? clip.id;
+    if (!fileUrlClipIdBySource.has(sourceKey)) {
+      fileUrlClipIdBySource.set(sourceKey, clip.id);
+    }
+  }
 
   const segments: PlaybackSegment[] = [];
   const gaps: PlaybackGap[] = [];
@@ -30,9 +38,11 @@ export function buildPlaybackPlan(
     if (segmentEndMs > effectiveStartMs) {
       const virtualStartSeconds = (effectiveStartMs - startAtMs) / 1000;
       const virtualEndSeconds = (segmentEndMs - startAtMs) / 1000;
+      const sourceKey = clip.sourceFileId ?? clip.id;
+      const fileUrlClipId = fileUrlClipIdBySource.get(sourceKey) ?? clip.id;
       const segment: PlaybackSegment = {
         clipId: clip.id,
-        fileUrl: `/api/clips/${clip.id}/file`,
+        fileUrl: `/api/clips/${fileUrlClipId}/file`,
         wallStartAtMs: effectiveStartMs,
         wallEndAtMs: segmentEndMs,
         clipOffsetSeconds: (clip.mediaStartSeconds ?? 0) + (effectiveStartMs - clip.startAtMs) / 1000,

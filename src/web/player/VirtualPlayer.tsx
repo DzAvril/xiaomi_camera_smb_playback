@@ -273,47 +273,49 @@ export function VirtualPlayer({ isLoading = false, onWallTimeChange, plan, seekT
         ) : (
           <div className="virtual-player-empty">No playable recording is loaded.</div>
         )}
-      </div>
 
-      <div className="virtual-player-controls">
-        <div className="seek-controls" aria-label="Seek controls">
-          <button
-            aria-label="Back 10 seconds"
-            className="icon-button seek-button"
-            onClick={() => seekBySeconds(-SEEK_STEP_SECONDS)}
-            type="button"
-          >
-            <RotateCcw aria-hidden="true" size={15} />
-            10s
-          </button>
-          <button
-            aria-label="Forward 10 seconds"
-            className="icon-button seek-button"
-            onClick={() => seekBySeconds(SEEK_STEP_SECONDS)}
-            type="button"
-          >
-            <RotateCw aria-hidden="true" size={15} />
-            10s
-          </button>
-        </div>
+        {currentMatch ? (
+          <div className="virtual-player-controls">
+            <div className="seek-controls" aria-label="Seek controls">
+              <button
+                aria-label="Back 10 seconds"
+                className="icon-button seek-button"
+                onClick={() => seekBySeconds(-SEEK_STEP_SECONDS)}
+                type="button"
+              >
+                <RotateCcw aria-hidden="true" size={15} />
+                10s
+              </button>
+              <button
+                aria-label="Forward 10 seconds"
+                className="icon-button seek-button"
+                onClick={() => seekBySeconds(SEEK_STEP_SECONDS)}
+                type="button"
+              >
+                <RotateCw aria-hidden="true" size={15} />
+                10s
+              </button>
+            </div>
 
-        <div className="speed-controls" aria-label="Playback speed">
-          {PLAYBACK_RATES.map((rate) => (
-            <button
-              aria-pressed={playbackRate === rate}
-              className={`speed-button${playbackRate === rate ? " is-selected" : ""}`}
-              key={rate}
-              onClick={() => setPlaybackRate(rate)}
-              type="button"
-            >
-              {rate}x
-            </button>
-          ))}
-        </div>
+            <div className="speed-controls" aria-label="Playback speed">
+              {PLAYBACK_RATES.map((rate) => (
+                <button
+                  aria-pressed={playbackRate === rate}
+                  className={`speed-button${playbackRate === rate ? " is-selected" : ""}`}
+                  key={rate}
+                  onClick={() => setPlaybackRate(rate)}
+                  type="button"
+                >
+                  {rate}x
+                </button>
+              ))}
+            </div>
 
-        <span className="wall-time-readout" aria-live="polite">
-          {formatWallTime(plan, virtualSeconds)}
-        </span>
+            <span className="wall-time-readout" aria-live="polite">
+              {formatWallTime(plan, virtualSeconds)}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       {notice ? (

@@ -419,8 +419,9 @@ describe("App", () => {
     expect(playbackPanelRule).not.toContain("grid-template-rows");
     expect(videoPlaceholderRule).toContain("56vh");
     expect(virtualPlayerRule).toContain("flex: 0 0 clamp(340px, 56vh, 760px)");
-    expect(virtualPlayerRule).toContain("grid-template-rows: minmax(0, 1fr) auto auto");
+    expect(virtualPlayerRule).toContain("grid-template-rows: minmax(0, 1fr) auto");
     expect(virtualPlayerStageRule).toContain("min-height: 0");
+    expect(virtualPlayerStageRule).toContain("grid-template-rows: minmax(0, 1fr) auto");
     expect(dayTimelineTrackRule).toContain("linear-gradient");
     expect(dayTimelineSpanRule).toContain("box-shadow");
     expect(dateControlRule).toContain("white-space: nowrap");
@@ -545,6 +546,7 @@ describe("App", () => {
       ),
     );
     expect(screen.getByLabelText("Selected time 10:05")).toBeInTheDocument();
+    expect(screen.getByText("Range timeline")).toBeInTheDocument();
   });
 
   it("moves the day timeline playhead as video playback advances", async () => {

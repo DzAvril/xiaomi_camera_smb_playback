@@ -109,4 +109,18 @@ describe("VirtualPlayer", () => {
     expect(screen.queryByLabelText("Preloading next clip")).not.toBeInTheDocument();
     expect(loadSpy).toHaveBeenCalled();
   });
+
+  it("does not preload when the next logical clip uses the same physical file URL", () => {
+    const first = segment("clip-a-0", 0, 600, 0);
+    const second = { ...segment("clip-a-1", 600, 1200, 600), fileUrl: first.fileUrl };
+    const plan = playbackPlan([first, second]);
+    render(<VirtualPlayer plan={plan} />);
+    const video = document.querySelector("video")!;
+    fireEvent.loadedMetadata(video);
+
+    video.currentTime = 585;
+    fireEvent.timeUpdate(video);
+
+    expect(screen.queryByLabelText("Preloading next clip")).not.toBeInTheDocument();
+  });
 });
