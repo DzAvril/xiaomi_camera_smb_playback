@@ -1,9 +1,13 @@
-import { HardDrive, Video } from "lucide-react";
+import { HardDrive, MonitorPlay, Settings, Video } from "lucide-react";
 import type { CameraStream } from "../../shared/types";
 
 type CameraSidebarProps = {
+  appVersion: string;
   cameras: CameraStream[];
   emptyLabel?: string;
+  isSettingsSelected?: boolean;
+  onOpenPlayback: () => void;
+  onOpenSettings: () => void;
   selectedCameraId: string | null;
   onSelectCamera: (cameraId: string) => void;
 };
@@ -48,11 +52,41 @@ function summarize(cameras: CameraStream[]) {
   );
 }
 
-export function CameraSidebar({ cameras, emptyLabel = "No cameras indexed", selectedCameraId, onSelectCamera }: CameraSidebarProps) {
+export function CameraSidebar({
+  appVersion,
+  cameras,
+  emptyLabel = "No cameras indexed",
+  isSettingsSelected = false,
+  onOpenPlayback,
+  onOpenSettings,
+  selectedCameraId,
+  onSelectCamera,
+}: CameraSidebarProps) {
   const totals = summarize(cameras);
 
   return (
     <aside className="camera-sidebar" aria-label="Camera list">
+      <nav className="sidebar-nav" aria-label="App sections">
+        <button
+          aria-pressed={!isSettingsSelected}
+          className={`sidebar-nav-button${!isSettingsSelected ? " is-selected" : ""}`}
+          onClick={onOpenPlayback}
+          type="button"
+        >
+          <MonitorPlay aria-hidden="true" size={15} />
+          Playback
+        </button>
+        <button
+          aria-pressed={isSettingsSelected}
+          className={`sidebar-nav-button${isSettingsSelected ? " is-selected" : ""}`}
+          onClick={onOpenSettings}
+          type="button"
+        >
+          <Settings aria-hidden="true" size={15} />
+          Settings
+        </button>
+      </nav>
+
       <div className="sidebar-section">
         <div className="section-label">Cameras</div>
         <div className="camera-list">
@@ -111,6 +145,11 @@ export function CameraSidebar({ cameras, emptyLabel = "No cameras indexed", sele
             </dd>
           </div>
         </dl>
+      </div>
+
+      <div className="sidebar-version" aria-label={`Image version v${appVersion}`}>
+        <span>Image version</span>
+        <strong>v{appVersion}</strong>
       </div>
     </aside>
   );

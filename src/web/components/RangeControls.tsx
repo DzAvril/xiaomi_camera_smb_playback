@@ -1,4 +1,4 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Play, RotateCw } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Play, RotateCw, SlidersHorizontal } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 type RangeControlsProps = {
@@ -84,9 +84,11 @@ export function RangeControls({
 }: RangeControlsProps) {
   const { monthIndex, year } = parseDateParts(date);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [isRangeOpen, setIsRangeOpen] = useState(false);
   const [visibleMonth, setVisibleMonth] = useState(monthKey(year, monthIndex));
   const recordedDateSet = useMemo(() => new Set(recordedDates), [recordedDates]);
   const calendarDays = useMemo(() => getCalendarDays(visibleMonth), [visibleMonth]);
+  const canPlayRange = rangeStart !== undefined && rangeEnd !== undefined && onRangeStartChange && onRangeEndChange && onPlayRange;
 
   useEffect(() => {
     setVisibleMonth(monthKey(year, monthIndex));
@@ -100,6 +102,7 @@ export function RangeControls({
   function submitRange(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onPlayRange?.();
+    setIsRangeOpen(false);
   }
 
   return (
@@ -173,35 +176,50 @@ export function RangeControls({
         {isRefreshing ? "Refreshing" : "Refresh"}
       </button>
 
-      {rangeStart !== undefined && rangeEnd !== undefined && onRangeStartChange && onRangeEndChange && onPlayRange ? (
-        <form className="custom-range-controls" onSubmit={submitRange}>
-          <label className="datetime-field">
-            <span>Start</span>
-            <input
-              aria-label="Range start"
-              disabled={disabled}
-              onChange={(event) => onRangeStartChange(event.target.value)}
-              step="1"
-              type="datetime-local"
-              value={rangeStart}
-            />
-          </label>
-          <label className="datetime-field">
-            <span>End</span>
-            <input
-              aria-label="Range end"
-              disabled={disabled}
-              onChange={(event) => onRangeEndChange(event.target.value)}
-              step="1"
-              type="datetime-local"
-              value={rangeEnd}
-            />
-          </label>
-          <button className="icon-button text-button" disabled={disabled} type="submit">
-            <Play aria-hidden="true" size={15} />
-            Play range
+      {canPlayRange ? (
+        <div className="range-panel-control">
+          <button
+            aria-expanded={isRangeOpen}
+            className="icon-button text-button range-toggle-button"
+            disabled={disabled}
+            onClick={() => setIsRangeOpen((open) => !open)}
+            type="button"
+          >
+            <SlidersHorizontal aria-hidden="true" size={15} />
+            Range
           </button>
-        </form>
+
+          {isRangeOpen ? (
+            <form className="custom-range-controls" onSubmit={submitRange}>
+              <label className="datetime-field">
+                <span>Start</span>
+                <input
+                  aria-label="Range start"
+                  disabled={disabled}
+                  onChange={(event) => onRangeStartChange(event.target.value)}
+                  step="1"
+                  type="datetime-local"
+                  value={rangeStart}
+                />
+              </label>
+              <label className="datetime-field">
+                <span>End</span>
+                <input
+                  aria-label="Range end"
+                  disabled={disabled}
+                  onChange={(event) => onRangeEndChange(event.target.value)}
+                  step="1"
+                  type="datetime-local"
+                  value={rangeEnd}
+                />
+              </label>
+              <button className="icon-button text-button" disabled={disabled} type="submit">
+                <Play aria-hidden="true" size={15} />
+                Play range
+              </button>
+            </form>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

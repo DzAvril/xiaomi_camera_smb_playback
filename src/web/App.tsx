@@ -1,6 +1,7 @@
-import { LockKeyhole, MonitorPlay, Settings } from "lucide-react";
+import { LockKeyhole, MonitorPlay } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import packageJson from "../../package.json";
 import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../shared/types";
 import { api } from "./api";
 import { CameraSidebar } from "./components/CameraSidebar";
@@ -12,6 +13,7 @@ import { VirtualPlayer } from "./player/VirtualPlayer";
 const PLAYBACK_WINDOW_MS = 30 * 60 * 1000;
 const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
 const LOCAL_DATETIME_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
+const APP_VERSION = packageJson.version;
 type AuthStatus = "checking" | "authenticated" | "required";
 type AppView = "playback" | "settings";
 
@@ -185,6 +187,7 @@ export default function App() {
 
   function selectCamera(cameraId: string) {
     playbackRequestId.current += 1;
+    setView("playback");
     setSelectedCameraId(cameraId);
     setSelectedAtMs(null);
     setPlayheadAtMs(null);
@@ -451,8 +454,12 @@ export default function App() {
   return (
     <div className="app-shell">
       <CameraSidebar
+        appVersion={APP_VERSION}
         cameras={visibleCameras}
         emptyLabel={cameras.length === 0 ? "No cameras indexed" : "No cameras visible"}
+        isSettingsSelected={view === "settings"}
+        onOpenPlayback={() => setView("playback")}
+        onOpenSettings={() => setView("settings")}
         onSelectCamera={selectCamera}
         selectedCameraId={selectedCameraId}
       />
@@ -478,27 +485,6 @@ export default function App() {
           </div>
 
           <div className="header-actions">
-            <div className="view-switch" aria-label="View">
-              <button
-                aria-pressed={view === "playback"}
-                className={`view-switch-button${view === "playback" ? " is-selected" : ""}`}
-                onClick={() => setView("playback")}
-                type="button"
-              >
-                <MonitorPlay aria-hidden="true" size={15} />
-                Playback
-              </button>
-              <button
-                aria-pressed={view === "settings"}
-                className={`view-switch-button${view === "settings" ? " is-selected" : ""}`}
-                onClick={() => setView("settings")}
-                type="button"
-              >
-                <Settings aria-hidden="true" size={15} />
-                Settings
-              </button>
-            </div>
-
             {view === "playback" ? (
               <RangeControls
                 date={date}

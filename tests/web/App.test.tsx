@@ -216,7 +216,7 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: /前院主摄/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /侧院隐藏/ })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(within(screen.getByLabelText("Camera list")).getByRole("button", { name: "Settings" }));
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByText("/recordings/B88880A344EB · channel 00")).toBeInTheDocument();
@@ -233,7 +233,7 @@ describe("App", () => {
     );
     expect(await within(frontCard).findByText("Saved")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Playback" }));
+    await userEvent.click(within(screen.getByLabelText("Camera list")).getByRole("button", { name: "Playback" }));
     expect(screen.queryByRole("button", { name: /车库入口/ })).not.toBeInTheDocument();
   });
 
@@ -241,7 +241,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findAllByText("前院主摄");
-    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(within(screen.getByLabelText("Camera list")).getByRole("button", { name: "Settings" }));
 
     await userEvent.type(screen.getByLabelText("Current password"), "old-password");
     await userEvent.type(screen.getByLabelText("New password"), "new-password-123");
@@ -250,6 +250,24 @@ describe("App", () => {
 
     await waitFor(() => expect(mocks.changePassword).toHaveBeenCalledWith("old-password", "new-password-123"));
     expect(await screen.findByText("Password updated")).toBeInTheDocument();
+  });
+
+  it("keeps the settings entry in the sidebar navigation", async () => {
+    const { container } = render(<App />);
+
+    await screen.findAllByText("前院主摄");
+
+    const sidebar = screen.getByLabelText("Camera list");
+    expect(within(sidebar).getByRole("button", { name: "Settings" })).toBeInTheDocument();
+    expect(container.querySelector(".playback-header .view-switch")).not.toBeInTheDocument();
+  });
+
+  it("shows the Docker image version in the sidebar", async () => {
+    render(<App />);
+
+    const sidebar = screen.getByLabelText("Camera list");
+    expect(await within(sidebar).findByText("Image version")).toBeInTheDocument();
+    expect(within(sidebar).getByText("v0.1.4")).toBeInTheDocument();
   });
 
   it("keeps refresh available after camera loading fails", async () => {
@@ -413,6 +431,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findAllByText("前院主摄");
+    await userEvent.click(screen.getByRole("button", { name: "Range" }));
     await userEvent.clear(screen.getByLabelText("Range start"));
     await userEvent.type(screen.getByLabelText("Range start"), "2026-05-04T10:05:00");
     await userEvent.clear(screen.getByLabelText("Range end"));

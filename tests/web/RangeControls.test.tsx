@@ -29,4 +29,27 @@ describe("RangeControls", () => {
 
     expect(onDateChange).toHaveBeenCalledWith("2026-05-18");
   });
+
+  it("keeps custom range fields hidden until the range panel is opened", async () => {
+    render(
+      <RangeControls
+        date="2026-05-04"
+        onDateChange={vi.fn()}
+        onPlayRange={vi.fn()}
+        onRefresh={vi.fn()}
+        rangeEnd="2026-05-04T23:59:59"
+        rangeStart="2026-05-04T00:00:00"
+        onRangeEndChange={vi.fn()}
+        onRangeStartChange={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Range start")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Range end")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Range" }));
+
+    expect(screen.getByLabelText("Range start")).toBeInTheDocument();
+    expect(screen.getByLabelText("Range end")).toBeInTheDocument();
+  });
 });
