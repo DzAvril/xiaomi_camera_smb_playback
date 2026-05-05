@@ -109,4 +109,49 @@ describe("DayTimeline", () => {
 
     expect(onSelectTime).toHaveBeenCalledWith(shanghaiTimestamp(date, "18:00:00"));
   });
+
+  it("maps clicks on visually widened short spans back into the real recorded interval", () => {
+    const date = "2026-05-04";
+    const shortSpan: TimelineSpan = {
+      startAtMs: shanghaiTimestamp(date, "12:00:00"),
+      endAtMs: shanghaiTimestamp(date, "12:02:00"),
+      durationSeconds: 120,
+      clipIds: ["clip-1"],
+    };
+    const onSelectTime = renderTimeline(date, [shortSpan], null);
+    const track = screen.getByLabelText("Recorded spans");
+    const spanButton = screen.getByRole("button", { name: "Recorded span 12:00 - 12:02" });
+
+    track.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 1_000,
+        top: 0,
+        bottom: 42,
+        width: 1_000,
+        height: 42,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    spanButton.getBoundingClientRect = () =>
+      ({
+        left: 100,
+        right: 160,
+        top: 0,
+        bottom: 42,
+        width: 60,
+        height: 42,
+        x: 100,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fireEvent.mouseMove(spanButton, { clientX: 155 });
+    expect(screen.getByLabelText("Hovered time 12:01:50")).toHaveStyle({ left: "50.127315%" });
+
+    fireEvent.click(spanButton, { clientX: 155 });
+
+    expect(onSelectTime).toHaveBeenCalledWith(shanghaiTimestamp(date, "12:01:50"));
+  });
 });

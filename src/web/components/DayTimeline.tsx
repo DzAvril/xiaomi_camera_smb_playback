@@ -77,6 +77,28 @@ function getSpanLabel(span: TimelineSpan, dayStartMs: number): string {
   return `${formatTime(span.startAtMs, dayStartMs)} - ${formatTime(span.endAtMs, dayStartMs)}`;
 }
 
+function getSpanTimestampFromClientX(
+  element: HTMLElement,
+  clientX: number,
+  span: TimelineSpan,
+  dayStartMs: number,
+): { left: number; timestampMs: number } | null {
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0) {
+    return null;
+  }
+
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+  const durationMs = Math.max(0, span.endAtMs - span.startAtMs);
+  const lastPlayableMs = Math.max(span.startAtMs, span.endAtMs - 1);
+  const timestampMs = Math.max(span.startAtMs, Math.min(lastPlayableMs, Math.round(span.startAtMs + ratio * durationMs)));
+
+  return {
+    left: toPercent(timestampMs, dayStartMs),
+    timestampMs,
+  };
+}
+
 function formatTimelineCount(count: number): string {
   return `${count} timeline ${count === 1 ? "span" : "spans"}`;
 }
@@ -109,9 +131,20 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
     setHoveredTime(getTimestampFromClientX(event.clientX));
   }
 
+  function updateHoveredSpanTime(event: MouseEvent<HTMLElement>, span: TimelineSpan) {
+    event.stopPropagation();
+    setHoveredTime(getSpanTimestampFromClientX(event.currentTarget, event.clientX, span, dayStartMs));
+  }
+
   function selectClientTime(event: MouseEvent<HTMLElement>, fallbackTimestampMs?: number) {
     const selected = getTimestampFromClientX(event.clientX);
     onSelectTime(selected?.timestampMs ?? fallbackTimestampMs ?? dayStartMs);
+  }
+
+  function selectSpanTime(event: MouseEvent<HTMLElement>, span: TimelineSpan) {
+    event.stopPropagation();
+    const selected = getSpanTimestampFromClientX(event.currentTarget, event.clientX, span, dayStartMs);
+    onSelectTime(selected?.timestampMs ?? span.startAtMs);
   }
 
   return (
@@ -141,10 +174,8 @@ export function DayTimeline({ date, spans, selectedAtMs, onSelectTime }: DayTime
                 aria-label={`Recorded span ${label}`}
                 className="day-timeline-span"
                 key={`${span.startAtMs}-${span.endAtMs}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  selectClientTime(event, span.startAtMs);
-                }}
+                onClick={(event) => selectSpanTime(event, span)}
+                onMouseMove={(event) => updateHoveredSpanTime(event, span)}
                 style={{ left: `${formatPercent(left)}%`, width: `${formatPercent(width)}%` }}
                 title={label}
                 type="button"
