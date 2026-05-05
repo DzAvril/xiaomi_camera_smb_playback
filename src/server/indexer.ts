@@ -40,8 +40,15 @@ type LogicalClipSegment = {
 };
 
 type MikeIndexEntry = {
+  byteLength: number;
   fileOffset: number;
   timestampSeconds: number;
+};
+
+type SidxReference = {
+  durationSeconds: number;
+  endOffset: number;
+  startOffset: number;
 };
 
 const BOX_HEADER_BYTES = 8;
@@ -86,32 +93,64 @@ function readBytesAt(fileSystem: FileSystem, fd: number, position: number, lengt
   return bytesRead === length ? buffer : null;
 }
 
-function parseSidxDurations(box: Buffer): number[] {
+function readUInt64BEAsSafeNumber(buffer: Buffer, offset: number): number | null {
+  const value = buffer.readBigUInt64BE(offset);
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
+}
+
+function parseSidxReferences(box: Buffer, boxStartOffset: number): SidxReference[] {
   if (box.length < 32) {
     return [];
   }
 
   const version = box.readUInt8(8);
-  if (version !== 0) {
-    return [];
-  }
-
   const timescale = box.readUInt32BE(16);
   if (timescale <= 0) {
     return [];
   }
 
-  const referenceCount = box.readUInt16BE(30);
-  const durations: number[] = [];
-  for (let index = 0; index < referenceCount; index += 1) {
-    const entryOffset = 32 + index * 12;
-    if (entryOffset + 8 > box.length) {
-      return durations;
-    }
-    durations.push(box.readUInt32BE(entryOffset + 4) / timescale);
+  let firstOffset: number | null;
+  let referenceCountOffset: number;
+  if (version === 0) {
+    firstOffset = box.readUInt32BE(24);
+    referenceCountOffset = 30;
+  } else if (version === 1 && box.length >= 40) {
+    firstOffset = readUInt64BEAsSafeNumber(box, 28);
+    referenceCountOffset = 38;
+  } else {
+    return [];
   }
 
-  return durations;
+  if (firstOffset === null || box.length < referenceCountOffset + 2) {
+    return [];
+  }
+
+  const referenceCount = box.readUInt16BE(referenceCountOffset);
+  let referencedOffset = boxStartOffset + box.length + firstOffset;
+  const references: SidxReference[] = [];
+  for (let index = 0; index < referenceCount; index += 1) {
+    const entryOffset = referenceCountOffset + 2 + index * 12;
+    if (entryOffset + 12 > box.length) {
+      return references;
+    }
+
+    const referenceInfo = box.readUInt32BE(entryOffset);
+    const referenceType = referenceInfo >>> 31;
+    const referencedSize = referenceInfo & 0x7fffffff;
+    if (referenceType !== 0 || referencedSize <= 0) {
+      return references;
+    }
+
+    const durationSeconds = box.readUInt32BE(entryOffset + 4) / timescale;
+    references.push({
+      durationSeconds,
+      startOffset: referencedOffset,
+      endOffset: referencedOffset + referencedSize,
+    });
+    referencedOffset += referencedSize;
+  }
+
+  return references;
 }
 
 function parseMikeIndexEntry(content: Buffer): MikeIndexEntry | null {
@@ -121,9 +160,16 @@ function parseMikeIndexEntry(content: Buffer): MikeIndexEntry | null {
   }
 
   return {
+    byteLength: content.readUInt32LE(markerOffset + 32),
     timestampSeconds: content.readUInt32LE(markerOffset + 20),
     fileOffset: content.readUInt32LE(markerOffset + 28),
   };
+}
+
+function sumReferenceDurations(references: SidxReference[], startOffset: number, endOffset: number): number {
+  return references
+    .filter((reference) => reference.startOffset >= startOffset && reference.startOffset < endOffset)
+    .reduce((sum, reference) => sum + reference.durationSeconds, 0);
 }
 
 function readFragmentedLogicalSegments(
@@ -143,7 +189,7 @@ function readFragmentedLogicalSegments(
   }
 
   const mikeIndexes: MikeIndexEntry[] = [];
-  let sidxDurations: number[] = [];
+  let sidxReferences: SidxReference[] = [];
   let fd: number | null = null;
 
   try {
@@ -163,7 +209,7 @@ function readFragmentedLogicalSegments(
 
       if (type === "sidx") {
         const box = readBytesAt(fileSystem, fd, position, size);
-        sidxDurations = box ? parseSidxDurations(box) : [];
+        sidxReferences = box ? [...sidxReferences, ...parseSidxReferences(box, position)] : sidxReferences;
       } else if (type === "uuid") {
         const contentSize = Math.min(size - BOX_HEADER_BYTES, MAX_UUID_SCAN_BYTES);
         const content = readBytesAt(fileSystem, fd, position + BOX_HEADER_BYTES, contentSize);
@@ -183,22 +229,30 @@ function readFragmentedLogicalSegments(
     }
   }
 
-  if (mikeIndexes.length < 2 || sidxDurations.length < mikeIndexes.length) {
+  if (mikeIndexes.length < 2 || sidxReferences.length === 0) {
     return null;
   }
 
-  let mediaStartSeconds = 0;
-  return mikeIndexes
+  const sortedReferences = sidxReferences.sort((a, b) => a.startOffset - b.startOffset);
+  const sortedMikeIndexes = mikeIndexes
     .sort((a, b) => a.fileOffset - b.fileOffset)
+    .filter((entry, index, entries) => index === 0 || entry.fileOffset !== entries[index - 1].fileOffset);
+
+  return sortedMikeIndexes
     .map((entry, index) => {
-      const durationSeconds = sidxDurations[index];
-      const segment = {
+      const nextEntry = sortedMikeIndexes[index + 1];
+      const segmentEndOffset =
+        nextEntry?.fileOffset ?? (entry.byteLength > 0 ? Math.min(entry.fileOffset + entry.byteLength, fileSize) : fileSize);
+      const mediaStartSeconds = sortedReferences
+        .filter((reference) => reference.startOffset < entry.fileOffset)
+        .reduce((sum, reference) => sum + reference.durationSeconds, 0);
+      const durationSeconds = sumReferenceDurations(sortedReferences, entry.fileOffset, segmentEndOffset);
+
+      return {
         durationSeconds,
         mediaStartSeconds,
         startAtMs: entry.timestampSeconds * 1000,
       };
-      mediaStartSeconds += durationSeconds;
-      return segment;
     })
     .filter((segment) => segment.durationSeconds > 0);
 }

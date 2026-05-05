@@ -79,6 +79,53 @@ describe("catalog", () => {
     catalog.close();
   });
 
+  it("counts storage once when logical clips share the same physical file", () => {
+    const catalog = createTempCatalog();
+    const cameraId = createCameraId("dual", "00");
+
+    upsertDefaultCamera(catalog, cameraId);
+    catalog.upsertClip({
+      id: "physical-file-a-0",
+      sourceFileId: "physical-file-a",
+      mediaStartSeconds: 0,
+      cameraId,
+      rootPath: "/recordings/dual",
+      relativePath: "00_20260504120000_20260504150000.mp4",
+      channel: "00",
+      startAtMs: Date.UTC(2026, 4, 4, 4, 0, 0),
+      endAtMs: Date.UTC(2026, 4, 4, 4, 1, 0),
+      durationSeconds: 60,
+      sizeBytes: 134217728,
+      mtimeMs: 123,
+    });
+    catalog.upsertClip({
+      id: "physical-file-a-1",
+      sourceFileId: "physical-file-a",
+      mediaStartSeconds: 60,
+      cameraId,
+      rootPath: "/recordings/dual",
+      relativePath: "00_20260504120000_20260504150000.mp4",
+      channel: "00",
+      startAtMs: Date.UTC(2026, 4, 4, 6, 0, 0),
+      endAtMs: Date.UTC(2026, 4, 4, 6, 1, 0),
+      durationSeconds: 60,
+      sizeBytes: 134217728,
+      mtimeMs: 123,
+    });
+
+    expect(catalog.listCameras()[0]).toMatchObject({
+      clipCount: 2,
+      totalSeconds: 120,
+      totalBytes: 134217728,
+    });
+    expect(catalog.listClipsForCamera(cameraId, 0, Number.MAX_SAFE_INTEGER).map((clip) => clip.mediaStartSeconds)).toEqual([
+      0,
+      60,
+    ]);
+
+    catalog.close();
+  });
+
   it("gets a camera by id without aggregate clip metadata", () => {
     const catalog = createTempCatalog();
     const cameraId = createCameraId("dual", "00");

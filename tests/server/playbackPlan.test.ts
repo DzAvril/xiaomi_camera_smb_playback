@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ClipRecord } from "../../src/shared/types";
 import { buildPlaybackPlan } from "../../src/server/playbackPlan";
 
-function clip(id: string, start: Date, end: Date): ClipRecord {
+function clip(id: string, start: Date, end: Date, mediaStartSeconds = 0): ClipRecord {
   return {
     id,
     cameraId: "cam-00",
@@ -13,7 +13,8 @@ function clip(id: string, start: Date, end: Date): ClipRecord {
     endAtMs: end.getTime(),
     durationSeconds: (end.getTime() - start.getTime()) / 1000,
     sizeBytes: 100,
-    mtimeMs: 1
+    mtimeMs: 1,
+    mediaStartSeconds
   };
 }
 
@@ -184,5 +185,15 @@ describe("buildPlaybackPlan", () => {
     ]);
     expectMonotonicNonOverlappingVirtualSegments(plan);
     expectUniqueVirtualCoverage(plan, 1200);
+  });
+
+  it("seeks from the logical clip offset inside a discontinuous physical file", () => {
+    const start = at(14, 0, 30).getTime();
+    const end = at(14, 0, 45).getTime();
+    const plan = buildPlaybackPlan("cam-00", [clip("jump", at(14, 0), at(14, 1), 3600)], start, end);
+
+    expect(plan.segments.map((segment) => [segment.clipId, segment.clipOffsetSeconds, segment.playableSeconds])).toEqual([
+      ["jump", 3630, 15]
+    ]);
   });
 });

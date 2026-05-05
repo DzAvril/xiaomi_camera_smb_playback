@@ -80,6 +80,85 @@ function makeFragmentedMp4WithSidxDuration(durationSeconds: number): Buffer {
   return Buffer.concat([ftyp, moov, mvhd, sidx]);
 }
 
+function mp4Box(type: string, content: Buffer): Buffer {
+  const box = Buffer.alloc(8);
+  box.writeUInt32BE(8 + content.length, 0);
+  box.write(type, 4, "ascii");
+  return Buffer.concat([box, content]);
+}
+
+function makeMikeIndexBox(timestampSeconds: number, fileOffset: number, byteLength: number): Buffer {
+  const userType = Buffer.alloc(16);
+  const payload = Buffer.alloc(40);
+  payload.write("mike_index", 0, "ascii");
+  payload.writeUInt32LE(timestampSeconds, 20);
+  payload.writeUInt32LE(1, 24);
+  payload.writeUInt32LE(fileOffset, 28);
+  payload.writeUInt32LE(byteLength, 32);
+  return mp4Box("uuid", Buffer.concat([userType, payload]));
+}
+
+function makeMdatBox(byteLength: number): Buffer {
+  return mp4Box("mdat", Buffer.alloc(byteLength - 8));
+}
+
+function unixSecondsForShanghai(year: number, month: number, day: number, hour: number, minute: number, second = 0) {
+  return Math.floor(Date.UTC(year, month - 1, day, hour - 8, minute, second) / 1000);
+}
+
+function makeDiscontinuousFragmentedMp4(
+  segments: Array<{ timestampSeconds: number; durationSeconds?: number; referenceDurationsSeconds?: number[] }>,
+): Buffer {
+  const timescale = 1_000;
+  const references = segments.flatMap((segment) =>
+    segment.referenceDurationsSeconds ?? [segment.durationSeconds ?? 0]
+  );
+  const ftyp = Buffer.alloc(16);
+  ftyp.writeUInt32BE(16, 0);
+  ftyp.write("ftyp", 4, "ascii");
+  ftyp.write("iso6", 8, "ascii");
+
+  const mvhd = Buffer.alloc(32);
+  mvhd.writeUInt32BE(32, 0);
+  mvhd.write("mvhd", 4, "ascii");
+  mvhd.writeUInt32BE(timescale, 20);
+  mvhd.writeUInt32BE(0, 24);
+
+  const moov = Buffer.alloc(8);
+  moov.writeUInt32BE(8 + mvhd.length, 0);
+  moov.write("moov", 4, "ascii");
+
+  const referenceSize = 128;
+  const sidx = Buffer.alloc(32 + 12 * references.length);
+  sidx.writeUInt32BE(sidx.length, 0);
+  sidx.write("sidx", 4, "ascii");
+  sidx.writeUInt32BE(1, 12);
+  sidx.writeUInt32BE(timescale, 16);
+  sidx.writeUInt16BE(references.length, 30);
+  for (const [index, durationSeconds] of references.entries()) {
+    const entryOffset = 32 + 12 * index;
+    sidx.writeUInt32BE(referenceSize, entryOffset);
+    sidx.writeUInt32BE(Math.round(durationSeconds * timescale), entryOffset + 4);
+  }
+
+  const prefix = Buffer.concat([ftyp, moov, mvhd, sidx]);
+  let fileOffset = prefix.length;
+  const chunks: Buffer[] = [];
+  for (const segment of segments) {
+    const segmentReferenceDurations = segment.referenceDurationsSeconds ?? [segment.durationSeconds ?? 0];
+    const segmentByteLength = referenceSize * segmentReferenceDurations.length;
+    const uuid = makeMikeIndexBox(segment.timestampSeconds, fileOffset, segmentByteLength);
+    const firstMdat = makeMdatBox(referenceSize - uuid.length);
+    const remainingReferences = Array.from({ length: segmentReferenceDurations.length - 1 }, () =>
+      makeMdatBox(referenceSize)
+    );
+    chunks.push(Buffer.concat([uuid, firstMdat, ...remainingReferences]));
+    fileOffset += segmentByteLength;
+  }
+
+  return Buffer.concat([prefix, ...chunks]);
+}
+
 describe("scanRecordings", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -249,6 +328,109 @@ describe("scanRecordings", () => {
         durationSeconds: 95.25,
         endAtMs: new Date("2026-05-04T04:01:35.250Z").getTime(),
         startAtMs: new Date("2026-05-04T04:00:00.000Z").getTime()
+      })
+    ]);
+
+    catalog.close();
+  });
+
+  it("splits discontinuous fragmented MP4 files into logical clips from mike_index timestamps", async () => {
+    const scanRecordings = await loadScanRecordings();
+    const dir = createTempDir();
+    const root = path.join(dir, "B888809544F6");
+    mkdirSync(root);
+    writeFileSync(
+      path.join(root, "00_20260504120000_20260504150000.mp4"),
+      makeDiscontinuousFragmentedMp4([
+        { timestampSeconds: unixSecondsForShanghai(2026, 5, 4, 12, 0), durationSeconds: 60 },
+        { timestampSeconds: unixSecondsForShanghai(2026, 5, 4, 14, 0), durationSeconds: 60 },
+      ])
+    );
+
+    const catalog = openCatalog(path.join(dir, "catalog.sqlite"));
+    const result = scanRecordings(catalog, [configuredRoot(root)]);
+    const cameraId = catalog.listCameras().find((camera) => camera.channel === "00")?.id;
+
+    expect(result).toEqual({ cameraCount: 2, clipCount: 2 });
+    expect(cameraId).toBeDefined();
+    const clips = catalog.listClipsForCamera(cameraId!, 0, Number.MAX_SAFE_INTEGER);
+    expect(clips).toEqual([
+      expect.objectContaining({
+        startAtMs: Date.UTC(2026, 4, 4, 4, 0, 0),
+        endAtMs: Date.UTC(2026, 4, 4, 4, 1, 0),
+        durationSeconds: 60,
+        mediaStartSeconds: 0,
+      }),
+      expect.objectContaining({
+        startAtMs: Date.UTC(2026, 4, 4, 6, 0, 0),
+        endAtMs: Date.UTC(2026, 4, 4, 6, 1, 0),
+        durationSeconds: 60,
+        mediaStartSeconds: 60,
+      })
+    ]);
+    expect(new Set(clips.map((clip) => clip.sourceFileId)).size).toBe(1);
+    expect(catalog.listCameras().find((camera) => camera.channel === "00")).toMatchObject({
+      clipCount: 2,
+      totalSeconds: 120,
+    });
+
+    catalog.close();
+  });
+
+  it("sums all segment-index references between mike_index boxes", async () => {
+    const scanRecordings = await loadScanRecordings();
+    const dir = createTempDir();
+    const root = path.join(dir, "B888809544F6");
+    mkdirSync(root);
+    writeFileSync(
+      path.join(root, "00_20260504120000_20260504150000.mp4"),
+      makeDiscontinuousFragmentedMp4([
+        { timestampSeconds: unixSecondsForShanghai(2026, 5, 4, 12, 0), referenceDurationsSeconds: [30, 30] },
+        { timestampSeconds: unixSecondsForShanghai(2026, 5, 4, 14, 0), referenceDurationsSeconds: [20, 40] },
+      ])
+    );
+
+    const catalog = openCatalog(path.join(dir, "catalog.sqlite"));
+    scanRecordings(catalog, [configuredRoot(root)]);
+    const cameraId = catalog.listCameras().find((camera) => camera.channel === "00")?.id;
+
+    expect(cameraId).toBeDefined();
+    expect(
+      catalog
+        .listClipsForCamera(cameraId!, 0, Number.MAX_SAFE_INTEGER)
+        .map((clip) => [clip.durationSeconds, clip.mediaStartSeconds]),
+    ).toEqual([
+      [60, 0],
+      [60, 60],
+    ]);
+
+    catalog.close();
+  });
+
+  it("keeps cheap continuous indexing when the filename span matches the media duration", async () => {
+    const scanRecordings = await loadScanRecordings();
+    const dir = createTempDir();
+    const root = path.join(dir, "B888809544F6");
+    mkdirSync(root);
+    writeFileSync(
+      path.join(root, "00_20260504120000_20260504120200.mp4"),
+      makeDiscontinuousFragmentedMp4([
+        { timestampSeconds: unixSecondsForShanghai(2026, 5, 4, 12, 0), durationSeconds: 60 },
+        { timestampSeconds: unixSecondsForShanghai(2026, 5, 4, 14, 0), durationSeconds: 60 },
+      ])
+    );
+
+    const catalog = openCatalog(path.join(dir, "catalog.sqlite"));
+    scanRecordings(catalog, [configuredRoot(root)]);
+    const cameraId = catalog.listCameras().find((camera) => camera.channel === "00")?.id;
+
+    expect(cameraId).toBeDefined();
+    expect(catalog.listClipsForCamera(cameraId!, 0, Number.MAX_SAFE_INTEGER)).toEqual([
+      expect.objectContaining({
+        startAtMs: Date.UTC(2026, 4, 4, 4, 0, 0),
+        endAtMs: Date.UTC(2026, 4, 4, 4, 2, 0),
+        durationSeconds: 120,
+        mediaStartSeconds: 0,
       })
     ]);
 
