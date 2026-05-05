@@ -35,7 +35,7 @@ export function buildPlaybackPlan(
         fileUrl: `/api/clips/${clip.id}/file`,
         wallStartAtMs: effectiveStartMs,
         wallEndAtMs: segmentEndMs,
-        clipOffsetSeconds: (effectiveStartMs - clip.startAtMs) / 1000,
+        clipOffsetSeconds: (clip.mediaStartSeconds ?? 0) + (effectiveStartMs - clip.startAtMs) / 1000,
         playableSeconds: (segmentEndMs - effectiveStartMs) / 1000,
         virtualStartSeconds,
         virtualEndSeconds

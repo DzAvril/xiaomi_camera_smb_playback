@@ -15,6 +15,34 @@ function renderTimeline(date: string, spans: TimelineSpan[], selectedAtMs: numbe
   return onSelectTime;
 }
 
+function fireTimelinePointer(
+  element: HTMLElement,
+  type: "pointercancel" | "pointerdown" | "pointermove" | "pointerup",
+  init: {
+    button?: number;
+    clientX: number;
+    clientY?: number;
+    isPrimary?: boolean;
+    pointerId: number;
+    pointerType?: string;
+  },
+) {
+  const event = new Event(type, { bubbles: true, cancelable: true });
+  const properties = {
+    button: 0,
+    clientY: 0,
+    isPrimary: true,
+    pointerType: "touch",
+    ...init,
+  };
+
+  for (const [key, value] of Object.entries(properties)) {
+    Object.defineProperty(event, key, { value });
+  }
+
+  fireEvent(element, event);
+}
+
 describe("DayTimeline", () => {
   afterEach(() => {
     process.env.TZ = originalTimezone;
@@ -153,5 +181,97 @@ describe("DayTimeline", () => {
     fireEvent.click(spanButton, { clientX: 155 });
 
     expect(onSelectTime).toHaveBeenCalledWith(shanghaiTimestamp(date, "12:01:50"));
+  });
+
+  it("selects times continuously while a touch pointer drags across the track", () => {
+    const date = "2026-05-04";
+    const onSelectTime = renderTimeline(date, [], null);
+    const track = screen.getByLabelText("Recorded spans");
+
+    track.getBoundingClientRect = () =>
+      ({
+        left: 20,
+        right: 260,
+        top: 0,
+        bottom: 56,
+        width: 240,
+        height: 56,
+        x: 20,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    track.setPointerCapture = vi.fn();
+    track.releasePointerCapture = vi.fn();
+
+    fireTimelinePointer(track, "pointerdown", { clientX: 80, pointerId: 7 });
+    fireTimelinePointer(track, "pointermove", { clientX: 140, pointerId: 7 });
+    fireTimelinePointer(track, "pointermove", { clientX: 200, pointerId: 7 });
+    fireTimelinePointer(track, "pointerup", { clientX: 200, pointerId: 7 });
+
+    expect(onSelectTime).toHaveBeenNthCalledWith(1, shanghaiTimestamp(date, "06:00:00"));
+    expect(onSelectTime).toHaveBeenNthCalledWith(2, shanghaiTimestamp(date, "12:00:00"));
+    expect(onSelectTime).toHaveBeenNthCalledWith(3, shanghaiTimestamp(date, "18:00:00"));
+    expect(track.setPointerCapture).toHaveBeenCalledWith(7);
+    expect(track.releasePointerCapture).toHaveBeenCalledWith(7);
+  });
+
+  it("zooms the visible day range around the selected time for more precise picking", async () => {
+    const date = "2026-05-04";
+    const onSelectTime = renderTimeline(date, [], shanghaiTimestamp(date, "12:00:00"));
+    const track = screen.getByLabelText("Recorded spans");
+
+    track.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 240,
+        top: 0,
+        bottom: 56,
+        width: 240,
+        height: 56,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    await userEvent.click(screen.getByRole("button", { name: "Zoom in day timeline" }));
+
+    expect(screen.getByText("06:00 - 18:00")).toBeInTheDocument();
+    expect(screen.getByText("2x")).toBeInTheDocument();
+
+    fireEvent.click(track, { clientX: 60 });
+
+    expect(onSelectTime).toHaveBeenLastCalledWith(shanghaiTimestamp(date, "09:00:00"));
+
+    await userEvent.click(screen.getByRole("button", { name: "Reset day timeline zoom" }));
+    fireEvent.click(track, { clientX: 60 });
+
+    expect(onSelectTime).toHaveBeenLastCalledWith(shanghaiTimestamp(date, "06:00:00"));
+  });
+
+  it("supports two-finger pinch zoom on touch screens", () => {
+    const date = "2026-05-04";
+    renderTimeline(date, [], shanghaiTimestamp(date, "12:00:00"));
+    const track = screen.getByLabelText("Recorded spans");
+
+    track.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 400,
+        top: 0,
+        bottom: 56,
+        width: 400,
+        height: 56,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fireTimelinePointer(track, "pointerdown", { clientX: 100, pointerId: 1 });
+    fireTimelinePointer(track, "pointerdown", { clientX: 300, isPrimary: false, pointerId: 2 });
+    fireTimelinePointer(track, "pointermove", { clientX: 0, pointerId: 1 });
+    fireTimelinePointer(track, "pointermove", { clientX: 400, isPrimary: false, pointerId: 2 });
+
+    expect(screen.getByText("2x")).toBeInTheDocument();
+    expect(screen.getByText("06:00 - 18:00")).toBeInTheDocument();
   });
 });

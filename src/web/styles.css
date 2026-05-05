@@ -741,13 +741,59 @@ input:disabled {
 
 .day-timeline-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
+}
+
+.day-timeline-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
 .day-timeline-header strong {
   font-size: 13px;
+}
+
+.day-timeline-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.day-timeline-window,
+.day-timeline-zoom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border: 1px solid #c8cec2;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #3f4a39;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.day-timeline-window {
+  min-width: 94px;
+  padding: 0 8px;
+}
+
+.day-timeline-zoom {
+  width: 42px;
+}
+
+.timeline-zoom-button {
+  width: 30px;
+  height: 28px;
+  padding: 0;
 }
 
 .day-timeline-track {
@@ -761,6 +807,9 @@ input:disabled {
     linear-gradient(90deg, transparent 0 49.92%, rgb(29 36 45 / 20%) 49.92% 50.08%, transparent 50.08%),
     #e8eeeb;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 65%);
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
 }
 
 .day-timeline-empty {
@@ -1130,6 +1179,23 @@ input:disabled {
 
   .seek-controls {
     flex-wrap: wrap;
+  }
+
+  .day-timeline-header {
+    align-items: stretch;
+  }
+
+  .day-timeline-title,
+  .day-timeline-tools {
+    width: 100%;
+  }
+
+  .day-timeline-tools {
+    justify-content: space-between;
+  }
+
+  .day-timeline-window {
+    flex: 1 1 auto;
   }
 
   .speed-controls {

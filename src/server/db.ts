@@ -30,6 +30,7 @@ type CameraInput = {
 
 type ClipRow = {
   id: string;
+  source_file_id: string | null;
   camera_id: string;
   root_path: string;
   relative_path: string;
@@ -39,6 +40,7 @@ type ClipRow = {
   duration_seconds: number;
   size_bytes: number;
   mtime_ms: number;
+  media_start_seconds: number | null;
 };
 
 type SettingRow = {
@@ -66,6 +68,7 @@ export function openCatalog(databasePath: string) {
 
     CREATE TABLE IF NOT EXISTS clips (
       id TEXT PRIMARY KEY,
+      source_file_id TEXT,
       camera_id TEXT NOT NULL REFERENCES camera_streams(id) ON DELETE CASCADE,
       root_path TEXT NOT NULL,
       relative_path TEXT NOT NULL,
@@ -75,6 +78,7 @@ export function openCatalog(databasePath: string) {
       duration_seconds REAL NOT NULL,
       size_bytes INTEGER NOT NULL,
       mtime_ms INTEGER NOT NULL,
+      media_start_seconds REAL NOT NULL DEFAULT 0,
       indexed_at_ms INTEGER NOT NULL
     );
 
@@ -88,6 +92,18 @@ export function openCatalog(databasePath: string) {
     CREATE INDEX IF NOT EXISTS idx_clips_camera_end ON clips(camera_id, end_at_ms);
     CREATE INDEX IF NOT EXISTS idx_clips_camera_end_start ON clips(camera_id, end_at_ms, start_at_ms);
   `);
+  const clipColumns = new Set(
+    db
+      .prepare("PRAGMA table_info(clips)")
+      .all()
+      .map((row) => (row as { name: string }).name),
+  );
+  if (!clipColumns.has("source_file_id")) {
+    db.exec("ALTER TABLE clips ADD COLUMN source_file_id TEXT");
+  }
+  if (!clipColumns.has("media_start_seconds")) {
+    db.exec("ALTER TABLE clips ADD COLUMN media_start_seconds REAL NOT NULL DEFAULT 0");
+  }
   db.exec("CREATE TEMP TABLE IF NOT EXISTS seen_clip_ids (id TEXT PRIMARY KEY)");
 
   const upsertCameraStmt = db.prepare(`
@@ -101,9 +117,38 @@ export function openCatalog(databasePath: string) {
   `);
 
   const upsertClipStmt = db.prepare(`
-    INSERT INTO clips (id, camera_id, root_path, relative_path, channel, start_at_ms, end_at_ms, duration_seconds, size_bytes, mtime_ms, indexed_at_ms)
-    VALUES (@id, @cameraId, @rootPath, @relativePath, @channel, @startAtMs, @endAtMs, @durationSeconds, @sizeBytes, @mtimeMs, @indexedAtMs)
+    INSERT INTO clips (
+      id,
+      source_file_id,
+      camera_id,
+      root_path,
+      relative_path,
+      channel,
+      start_at_ms,
+      end_at_ms,
+      duration_seconds,
+      size_bytes,
+      mtime_ms,
+      media_start_seconds,
+      indexed_at_ms
+    )
+    VALUES (
+      @id,
+      @sourceFileId,
+      @cameraId,
+      @rootPath,
+      @relativePath,
+      @channel,
+      @startAtMs,
+      @endAtMs,
+      @durationSeconds,
+      @sizeBytes,
+      @mtimeMs,
+      @mediaStartSeconds,
+      @indexedAtMs
+    )
     ON CONFLICT(id) DO UPDATE SET
+      source_file_id = excluded.source_file_id,
       camera_id = excluded.camera_id,
       root_path = excluded.root_path,
       relative_path = excluded.relative_path,
@@ -113,6 +158,7 @@ export function openCatalog(databasePath: string) {
       duration_seconds = excluded.duration_seconds,
       size_bytes = excluded.size_bytes,
       mtime_ms = excluded.mtime_ms,
+      media_start_seconds = excluded.media_start_seconds,
       indexed_at_ms = excluded.indexed_at_ms
   `);
   const clearSeenClipIdsStmt = db.prepare("DELETE FROM seen_clip_ids");
@@ -138,6 +184,7 @@ export function openCatalog(databasePath: string) {
   function toClip(row: ClipRow): ClipRecord {
     return {
       id: row.id,
+      sourceFileId: row.source_file_id ?? row.id,
       cameraId: row.camera_id,
       rootPath: row.root_path,
       relativePath: row.relative_path,
@@ -147,6 +194,7 @@ export function openCatalog(databasePath: string) {
       durationSeconds: row.duration_seconds,
       sizeBytes: row.size_bytes,
       mtimeMs: row.mtime_ms,
+      mediaStartSeconds: row.media_start_seconds ?? 0,
     };
   }
 
@@ -167,7 +215,12 @@ export function openCatalog(databasePath: string) {
       upsertCameraStmt.run({ ...input, enabled: input.enabled ? 1 : 0, now: Date.now() });
     },
     upsertClip(input: ClipRecord) {
-      upsertClipStmt.run({ ...input, indexedAtMs: Date.now() });
+      upsertClipStmt.run({
+        ...input,
+        indexedAtMs: Date.now(),
+        mediaStartSeconds: input.mediaStartSeconds ?? 0,
+        sourceFileId: input.sourceFileId ?? input.id,
+      });
     },
     removeClipsNotSeen(cameraId: string, seenIds: string[]) {
       if (seenIds.length === 0) {
@@ -185,12 +238,21 @@ export function openCatalog(databasePath: string) {
             cs.*,
             COUNT(c.id) AS clip_count,
             COALESCE(SUM(c.duration_seconds), 0) AS total_seconds,
-            COALESCE(SUM(c.size_bytes), 0) AS total_bytes,
+            COALESCE(bytes.total_bytes, 0) AS total_bytes,
             MAX(c.end_at_ms) AS latest_end_at_ms,
             COUNT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000 + 8 * 60 * 60, 'unixepoch')) AS recorded_days,
             GROUP_CONCAT(DISTINCT strftime('%Y-%m-%d', c.start_at_ms / 1000 + 8 * 60 * 60, 'unixepoch')) AS recorded_dates
           FROM camera_streams cs
           LEFT JOIN clips c ON c.camera_id = cs.id
+          LEFT JOIN (
+            SELECT camera_id, SUM(size_bytes) AS total_bytes
+            FROM (
+              SELECT camera_id, COALESCE(source_file_id, id) AS source_file_key, MAX(size_bytes) AS size_bytes
+              FROM clips
+              GROUP BY camera_id, source_file_key
+            ) physical_files
+            GROUP BY camera_id
+          ) bytes ON bytes.camera_id = cs.id
           GROUP BY cs.id
           ORDER BY latest_end_at_ms DESC NULLS LAST, cs.alias ASC
         `,

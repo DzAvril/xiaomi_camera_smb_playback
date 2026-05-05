@@ -19,6 +19,7 @@ export type CameraStream = {
 
 export type ClipRecord = {
   id: string;
+  sourceFileId?: string;
   cameraId: string;
   rootPath: string;
   relativePath: string;
@@ -28,6 +29,7 @@ export type ClipRecord = {
   durationSeconds: number;
   sizeBytes: number;
   mtimeMs: number;
+  mediaStartSeconds?: number;
 };
 
 export type TimelineSpan = {
