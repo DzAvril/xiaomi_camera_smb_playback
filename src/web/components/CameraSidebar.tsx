@@ -3,6 +3,7 @@ import type { CameraStream } from "../../shared/types";
 
 type CameraSidebarProps = {
   cameras: CameraStream[];
+  emptyLabel?: string;
   selectedCameraId: string | null;
   onSelectCamera: (cameraId: string) => void;
 };
@@ -47,7 +48,7 @@ function summarize(cameras: CameraStream[]) {
   );
 }
 
-export function CameraSidebar({ cameras, selectedCameraId, onSelectCamera }: CameraSidebarProps) {
+export function CameraSidebar({ cameras, emptyLabel = "No cameras indexed", selectedCameraId, onSelectCamera }: CameraSidebarProps) {
   const totals = summarize(cameras);
 
   return (
@@ -56,7 +57,7 @@ export function CameraSidebar({ cameras, selectedCameraId, onSelectCamera }: Cam
         <div className="section-label">Cameras</div>
         <div className="camera-list">
           {cameras.length === 0 ? (
-            <div className="empty-state">No cameras indexed</div>
+            <div className="empty-state">{emptyLabel}</div>
           ) : (
             cameras.map((camera) => {
               const selected = camera.id === selectedCameraId;

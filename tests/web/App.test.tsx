@@ -12,7 +12,11 @@ const mocks = vi.hoisted(() => ({
   getRecordedDays: vi.fn<(cameraId: string) => Promise<RecordingDay[]>>(),
   getTimeline: vi.fn<(cameraId: string, date: string) => Promise<TimelineSpan[]>>(async () => []),
   listCameras: vi.fn<() => Promise<CameraStream[]>>(),
+  changePassword: vi.fn<(currentPassword: string, newPassword: string) => Promise<void>>(),
   refreshIndex: vi.fn(),
+  updateCamera: vi.fn<
+    (cameraId: string, update: { alias?: string; enabled?: boolean }) => Promise<Pick<CameraStream, "alias" | "enabled">>
+  >(),
 }));
 
 vi.mock("../../src/web/api", () => ({
@@ -22,21 +26,27 @@ vi.mock("../../src/web/api", () => ({
     getRecordedDays: mocks.getRecordedDays,
     getTimeline: mocks.getTimeline,
     listCameras: mocks.listCameras,
+    changePassword: mocks.changePassword,
     refreshIndex: mocks.refreshIndex,
+    updateCamera: mocks.updateCamera,
   },
 }));
 
 describe("App", () => {
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-05-04T09:00:00+08:00"));
     vi.clearAllMocks();
     mocks.createSession.mockResolvedValue();
     mocks.getPlaybackPlan.mockResolvedValue(playbackPlan(shanghaiTimestamp("2026-05-04", "12:00:00")));
     mocks.getRecordedDays.mockResolvedValue([{ date: "2026-05-04", totalBytes: 134217728, totalSeconds: 600 }]);
     mocks.getTimeline.mockResolvedValue([]);
+    mocks.changePassword.mockResolvedValue();
     mocks.listCameras.mockResolvedValue([
       {
         id: "front-main",
@@ -53,6 +63,10 @@ describe("App", () => {
       },
     ]);
     mocks.refreshIndex.mockResolvedValue({});
+    mocks.updateCamera.mockImplementation(async (_cameraId, update) => ({
+      alias: update.alias ?? "前院主摄",
+      enabled: update.enabled ?? true,
+    }));
   });
 
   function shanghaiTimestamp(date: string, time: string): number {
@@ -166,6 +180,78 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "2026-05-04 has recordings" })).toHaveClass("has-recordings");
   });
 
+  it("shows every mounted stream in settings and saves aliases and visibility", async () => {
+    mocks.listCameras.mockResolvedValue([
+      {
+        id: "front-main",
+        rootId: "B888808A681C",
+        rootPath: "/recordings/B888808A681C",
+        channel: "00",
+        alias: "前院主摄",
+        enabled: true,
+        clipCount: 1,
+        recordedDays: 1,
+        totalSeconds: 600,
+        totalBytes: 134217728,
+        latestEndAtMs: new Date("2026-05-04T03:10:00.000Z").getTime(),
+      },
+      {
+        id: "side-hidden",
+        rootId: "B88880A344EB",
+        rootPath: "/recordings/B88880A344EB",
+        channel: "00",
+        alias: "侧院隐藏",
+        enabled: false,
+        clipCount: 0,
+        recordedDays: 0,
+        totalSeconds: 0,
+        totalBytes: 0,
+        latestEndAtMs: null,
+      },
+    ]);
+    mocks.updateCamera.mockResolvedValueOnce({ alias: "车库入口", enabled: false });
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /前院主摄/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /侧院隐藏/ })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByText("/recordings/B88880A344EB · channel 00")).toBeInTheDocument();
+
+    const frontCard = screen.getByLabelText("Camera setting 前院主摄");
+    const aliasInput = within(frontCard).getByLabelText("Alias");
+    await userEvent.clear(aliasInput);
+    await userEvent.type(aliasInput, "车库入口");
+    await userEvent.click(within(frontCard).getByLabelText("Show in playback"));
+    await userEvent.click(within(frontCard).getByRole("button", { name: "Save camera" }));
+
+    await waitFor(() =>
+      expect(mocks.updateCamera).toHaveBeenCalledWith("front-main", { alias: "车库入口", enabled: false }),
+    );
+    expect(await within(frontCard).findByText("Saved")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Playback" }));
+    expect(screen.queryByRole("button", { name: /车库入口/ })).not.toBeInTheDocument();
+  });
+
+  it("changes the app password from settings", async () => {
+    render(<App />);
+
+    await screen.findAllByText("前院主摄");
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    await userEvent.type(screen.getByLabelText("Current password"), "old-password");
+    await userEvent.type(screen.getByLabelText("New password"), "new-password-123");
+    await userEvent.type(screen.getByLabelText("Confirm new password"), "new-password-123");
+    await userEvent.click(screen.getByRole("button", { name: "Change password" }));
+
+    await waitFor(() => expect(mocks.changePassword).toHaveBeenCalledWith("old-password", "new-password-123"));
+    expect(await screen.findByText("Password updated")).toBeInTheDocument();
+  });
+
   it("keeps refresh available after camera loading fails", async () => {
     mocks.listCameras.mockRejectedValueOnce(new Error("load failed"));
 
@@ -245,9 +331,16 @@ describe("App", () => {
   it("keeps the playback panel layout independent of optional status banners", () => {
     const styles = readFileSync(path.join(process.cwd(), "src/web/styles.css"), "utf8");
     const playbackPanelRule = styles.match(/\.playback-panel\s*\{[^}]+\}/)?.[0] ?? "";
+    const videoPlaceholderRule = styles.match(/\.video-placeholder\s*\{[^}]+\}/)?.[0] ?? "";
+    const dayTimelineTrackRule = styles.match(/\.day-timeline-track\s*\{[^}]+\}/)?.[0] ?? "";
+    const dayTimelineSpanRule = styles.match(/\.day-timeline-span\s*\{[^}]+\}/)?.[0] ?? "";
 
     expect(playbackPanelRule).toContain("display: flex");
+    expect(playbackPanelRule).toContain("height: 100vh");
     expect(playbackPanelRule).not.toContain("grid-template-rows");
+    expect(videoPlaceholderRule).toContain("56vh");
+    expect(dayTimelineTrackRule).toContain("linear-gradient");
+    expect(dayTimelineSpanRule).toContain("box-shadow");
   });
 
   it("does not render pending playback after refresh starts and then fails", async () => {
@@ -312,6 +405,28 @@ describe("App", () => {
       ),
     );
     await expectPlaybackLoadedWithoutTimelineSlider();
+  });
+
+  it("requests playback for a custom local time range", async () => {
+    mocks.getPlaybackPlan.mockResolvedValueOnce(playbackPlan(shanghaiTimestamp("2026-05-04", "10:05:00")));
+
+    render(<App />);
+
+    await screen.findAllByText("前院主摄");
+    await userEvent.clear(screen.getByLabelText("Range start"));
+    await userEvent.type(screen.getByLabelText("Range start"), "2026-05-04T10:05:00");
+    await userEvent.clear(screen.getByLabelText("Range end"));
+    await userEvent.type(screen.getByLabelText("Range end"), "2026-05-04T10:45:00");
+    await userEvent.click(screen.getByRole("button", { name: "Play range" }));
+
+    await waitFor(() =>
+      expect(mocks.getPlaybackPlan).toHaveBeenCalledWith(
+        "front-main",
+        "2026-05-04T10:05:00",
+        "2026-05-04T10:45:00",
+      ),
+    );
+    expect(screen.getByLabelText("Selected time 10:05")).toBeInTheDocument();
   });
 
   it("moves the day timeline playhead as video playback advances", async () => {

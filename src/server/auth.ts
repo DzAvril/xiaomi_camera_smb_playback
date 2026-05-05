@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 export const SESSION_COOKIE_NAME = "xcp_session";
 export const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -9,12 +9,38 @@ type SessionRecord = {
   expiresAtMs: number;
 };
 
+const PASSWORD_HASH_SCHEME = "scrypt";
+const PASSWORD_HASH_BYTES = 64;
+
 function sha256(value: string): Buffer {
   return createHash("sha256").update(value, "utf8").digest();
 }
 
 export function constantTimePasswordEquals(candidate: string, expected: string): boolean {
   return timingSafeEqual(sha256(candidate), sha256(expected));
+}
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("base64url");
+  const hash = scryptSync(password, salt, PASSWORD_HASH_BYTES).toString("base64url");
+
+  return `${PASSWORD_HASH_SCHEME}$${salt}$${hash}`;
+}
+
+export function verifyPasswordHash(candidate: string, passwordHash: string): boolean {
+  const [scheme, salt, expectedHash] = passwordHash.split("$");
+  if (scheme !== PASSWORD_HASH_SCHEME || !salt || !expectedHash) {
+    return false;
+  }
+
+  const expected = Buffer.from(expectedHash, "base64url");
+  const actual = scryptSync(candidate, salt, expected.length);
+
+  if (actual.length !== expected.length) {
+    return false;
+  }
+
+  return timingSafeEqual(actual, expected);
 }
 
 export function createSessionStore(ttlMs = SESSION_TTL_MS) {
@@ -53,6 +79,9 @@ export function createSessionStore(ttlMs = SESSION_TTL_MS) {
       }
 
       return false;
+    },
+    clear() {
+      sessions.clear();
     },
   };
 }

@@ -1,13 +1,18 @@
-import { CalendarDays, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, Play, RotateCw } from "lucide-react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 type RangeControlsProps = {
   date: string;
   disabled?: boolean;
   isRefreshing?: boolean;
   onDateChange: (date: string) => void;
+  onPlayRange?: () => void;
   onRefresh: () => void;
+  rangeEnd?: string;
+  rangeStart?: string;
   recordedDates?: string[];
+  onRangeEndChange?: (value: string) => void;
+  onRangeStartChange?: (value: string) => void;
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
@@ -69,8 +74,13 @@ export function RangeControls({
   disabled = false,
   isRefreshing = false,
   onDateChange,
+  onPlayRange,
   onRefresh,
+  rangeEnd,
+  rangeStart,
   recordedDates = [],
+  onRangeEndChange,
+  onRangeStartChange,
 }: RangeControlsProps) {
   const { monthIndex, year } = parseDateParts(date);
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
@@ -85,6 +95,11 @@ export function RangeControls({
   function selectDate(nextDate: string) {
     onDateChange(nextDate);
     setIsCalendarOpen(false);
+  }
+
+  function submitRange(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onPlayRange?.();
   }
 
   return (
@@ -157,6 +172,37 @@ export function RangeControls({
         <RotateCw aria-hidden="true" size={15} />
         {isRefreshing ? "Refreshing" : "Refresh"}
       </button>
+
+      {rangeStart !== undefined && rangeEnd !== undefined && onRangeStartChange && onRangeEndChange && onPlayRange ? (
+        <form className="custom-range-controls" onSubmit={submitRange}>
+          <label className="datetime-field">
+            <span>Start</span>
+            <input
+              aria-label="Range start"
+              disabled={disabled}
+              onChange={(event) => onRangeStartChange(event.target.value)}
+              step="1"
+              type="datetime-local"
+              value={rangeStart}
+            />
+          </label>
+          <label className="datetime-field">
+            <span>End</span>
+            <input
+              aria-label="Range end"
+              disabled={disabled}
+              onChange={(event) => onRangeEndChange(event.target.value)}
+              step="1"
+              type="datetime-local"
+              value={rangeEnd}
+            />
+          </label>
+          <button className="icon-button text-button" disabled={disabled} type="submit">
+            <Play aria-hidden="true" size={15} />
+            Play range
+          </button>
+        </form>
+      ) : null}
     </div>
   );
 }

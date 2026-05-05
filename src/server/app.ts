@@ -4,12 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookie from "@fastify/cookie";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyServerOptions } from "fastify";
 import {
   constantTimePasswordEquals,
   createSessionStore,
+  hashPassword,
   SESSION_COOKIE_NAME,
   SESSION_TTL_SECONDS,
+  verifyPasswordHash,
 } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import { openCatalog } from "./db.js";
@@ -19,6 +21,11 @@ type SessionBody = {
   password?: unknown;
 };
 
+type PasswordChangeBody = {
+  currentPassword?: unknown;
+  newPassword?: unknown;
+};
+
 type CreateAppOptions = Pick<FastifyServerOptions, "logger"> & {
   webRoot?: string | false;
 };
@@ -26,6 +33,8 @@ type CreateAppOptions = Pick<FastifyServerOptions, "logger"> & {
 const PUBLIC_API_ROUTES = new Set(["GET /api/health", "POST /api/session"]);
 const APP_DIR = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_WEB_ROOT = path.resolve(APP_DIR, "..", "..", "dist-web");
+const PASSWORD_HASH_SETTING_KEY = "password_hash";
+const PASSWORD_MIN_LENGTH = 8;
 
 function unauthorized() {
   return { error: "Unauthorized" };
@@ -77,6 +86,10 @@ function isInvalidJsonBodyError(error: unknown) {
     parserError.code === "FST_ERR_CTP_INVALID_JSON_BODY" ||
     (parserError.statusCode === 400 && parserError.message.includes("JSON"))
   );
+}
+
+function isPasswordChangeBody(value: unknown): value is PasswordChangeBody {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function registerStaticFrontend(app: FastifyInstance, webRootOption: string | false | undefined): string | null {
@@ -133,25 +146,59 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}): Fa
 
   app.get("/api/health", async () => ({ ok: true }));
 
+  function isActivePassword(password: string): boolean {
+    const storedPasswordHash = catalog.getSetting(PASSWORD_HASH_SETTING_KEY);
+    if (storedPasswordHash) {
+      return verifyPasswordHash(password, storedPasswordHash);
+    }
+
+    return constantTimePasswordEquals(password, config.password);
+  }
+
+  function issueSessionCookie(reply: FastifyReply) {
+    const session = sessions.create();
+
+    return reply.setCookie(SESSION_COOKIE_NAME, session.token, {
+      httpOnly: true,
+      maxAge: SESSION_TTL_SECONDS,
+      path: "/",
+      sameSite: "strict",
+    });
+  }
+
   app.post("/api/session", async (request, reply) => {
     const body = request.body as SessionBody | undefined;
     const password = body?.password;
 
-    if (typeof password !== "string" || !constantTimePasswordEquals(password, config.password)) {
+    if (typeof password !== "string" || !isActivePassword(password)) {
       return reply.code(401).send(unauthorized());
     }
 
-    const session = sessions.create();
+    return issueSessionCookie(reply).code(204).send();
+  });
 
-    return reply
-      .setCookie(SESSION_COOKIE_NAME, session.token, {
-        httpOnly: true,
-        maxAge: SESSION_TTL_SECONDS,
-        path: "/",
-        sameSite: "strict",
-      })
-      .code(204)
-      .send();
+  app.post("/api/settings/password", async (request, reply) => {
+    if (!isPasswordChangeBody(request.body)) {
+      return reply.code(400).send({ error: "Invalid password update" });
+    }
+
+    const { currentPassword, newPassword } = request.body;
+    if (typeof currentPassword !== "string" || typeof newPassword !== "string") {
+      return reply.code(400).send({ error: "Invalid password update" });
+    }
+
+    if (newPassword.length < PASSWORD_MIN_LENGTH) {
+      return reply.code(400).send({ error: "New password must be at least 8 characters" });
+    }
+
+    if (!isActivePassword(currentPassword)) {
+      return reply.code(401).send(unauthorized());
+    }
+
+    catalog.setSetting(PASSWORD_HASH_SETTING_KEY, hashPassword(newPassword));
+    sessions.clear();
+
+    return issueSessionCookie(reply).code(204).send();
   });
 
   registerRoutes(app, config);

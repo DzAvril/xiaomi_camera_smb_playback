@@ -1,6 +1,10 @@
 import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../shared/types";
 
 type JsonBody = Record<string, unknown> | unknown[];
+type CameraUpdate = {
+  alias?: string;
+  enabled?: boolean;
+};
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
@@ -72,8 +76,22 @@ export const api = {
     });
   },
 
+  changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    return requestVoid("/api/settings/password", {
+      method: "POST",
+      body: toJson({ currentPassword, newPassword }),
+    });
+  },
+
   listCameras(): Promise<CameraStream[]> {
     return requestJson<CameraStream[]>("/api/cameras");
+  },
+
+  updateCamera(cameraId: string, update: CameraUpdate): Promise<Pick<CameraStream, "id" | "alias" | "enabled">> {
+    return requestJson<Pick<CameraStream, "id" | "alias" | "enabled">>(`/api/cameras/${encodePathPart(cameraId)}`, {
+      method: "PATCH",
+      body: toJson(update),
+    });
   },
 
   getTimeline(cameraId: string, date: string): Promise<TimelineSpan[]> {

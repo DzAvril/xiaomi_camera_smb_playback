@@ -98,6 +98,20 @@ describe("catalog", () => {
     catalog.close();
   });
 
+  it("stores mutable app settings", () => {
+    const catalog = createTempCatalog();
+
+    expect(catalog.getSetting("password_hash")).toBeNull();
+
+    catalog.setSetting("password_hash", "scrypt$test");
+    expect(catalog.getSetting("password_hash")).toBe("scrypt$test");
+
+    catalog.setSetting("password_hash", "scrypt$updated");
+    expect(catalog.getSetting("password_hash")).toBe("scrypt$updated");
+
+    catalog.close();
+  });
+
   it("preserves mutable camera alias and enabled values when scanner upserts existing cameras", () => {
     const catalog = createTempCatalog();
     const cameraId = createCameraId("dual", "00");

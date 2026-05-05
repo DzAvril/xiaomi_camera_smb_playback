@@ -41,6 +41,10 @@ type ClipRow = {
   mtime_ms: number;
 };
 
+type SettingRow = {
+  value: string;
+};
+
 export type Catalog = ReturnType<typeof openCatalog>;
 
 export function openCatalog(databasePath: string) {
@@ -72,6 +76,12 @@ export function openCatalog(databasePath: string) {
       size_bytes INTEGER NOT NULL,
       mtime_ms INTEGER NOT NULL,
       indexed_at_ms INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at_ms INTEGER NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_clips_camera_start ON clips(camera_id, start_at_ms);
@@ -233,6 +243,21 @@ export function openCatalog(databasePath: string) {
         Date.now(),
         cameraId,
       );
+    },
+    getSetting(key: string): string | null {
+      const row = db.prepare("SELECT value FROM app_settings WHERE key = ?").get(key) as SettingRow | undefined;
+      return row?.value ?? null;
+    },
+    setSetting(key: string, value: string) {
+      db.prepare(
+        `
+          INSERT INTO app_settings (key, value, updated_at_ms)
+          VALUES (?, ?, ?)
+          ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at_ms = excluded.updated_at_ms
+        `,
+      ).run(key, value, Date.now());
     },
     close() {
       db.close();

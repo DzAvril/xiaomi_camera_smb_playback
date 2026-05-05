@@ -1,4 +1,4 @@
-import { LockKeyhole, MonitorPlay } from "lucide-react";
+import { LockKeyhole, MonitorPlay, Settings } from "lucide-react";
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CameraStream, PlaybackPlan, RecordingDay, TimelineSpan } from "../shared/types";
@@ -6,10 +6,14 @@ import { api } from "./api";
 import { CameraSidebar } from "./components/CameraSidebar";
 import { DayTimeline } from "./components/DayTimeline";
 import { RangeControls } from "./components/RangeControls";
+import { SettingsPage } from "./components/SettingsPage";
 import { VirtualPlayer } from "./player/VirtualPlayer";
 
 const PLAYBACK_WINDOW_MS = 30 * 60 * 1000;
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+const LOCAL_DATETIME_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 type AuthStatus = "checking" | "authenticated" | "required";
+type AppView = "playback" | "settings";
 
 function todayInputValue(): string {
   const now = new Date();
@@ -23,15 +27,44 @@ function isUnauthorizedError(error: unknown): boolean {
   return error instanceof Error && error.message === "Unauthorized";
 }
 
+function firstVisibleCameraId(cameras: CameraStream[]): string | null {
+  return cameras.find((camera) => camera.enabled)?.id ?? null;
+}
+
+function defaultRangeStart(date: string): string {
+  return `${date}T00:00:00`;
+}
+
+function defaultRangeEnd(date: string): string {
+  return `${date}T23:59:59`;
+}
+
+function parseShanghaiDateTimeInput(value: string): number | null {
+  const match = LOCAL_DATETIME_INPUT.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const [, year, month, day, hour, minute, second = "0"] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)) - SHANGHAI_OFFSET_MS;
+}
+
+function normalizeLocalDateTimeInput(value: string): string {
+  return value.length === 16 ? `${value}:00` : value;
+}
+
 export default function App() {
   const playbackRequestId = useRef(0);
   const [authStatus, setAuthStatus] = useState<AuthStatus>("checking");
+  const [view, setView] = useState<AppView>("playback");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [cameras, setCameras] = useState<CameraStream[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [date, setDate] = useState(todayInputValue);
+  const [rangeStart, setRangeStart] = useState(() => defaultRangeStart(todayInputValue()));
+  const [rangeEnd, setRangeEnd] = useState(() => defaultRangeEnd(todayInputValue()));
   const [timeline, setTimeline] = useState<TimelineSpan[]>([]);
   const [recordedDays, setRecordedDays] = useState<RecordingDay[]>([]);
   const [selectedAtMs, setSelectedAtMs] = useState<number | null>(null);
@@ -80,7 +113,7 @@ export default function App() {
 
         setAuthStatus("authenticated");
         setCameras(nextCameras);
-        setSelectedCameraId((current) => current ?? nextCameras[0]?.id ?? null);
+        setSelectedCameraId((current) => current ?? firstVisibleCameraId(nextCameras));
       } catch (loadError) {
         if (!cancelled) {
           if (isUnauthorizedError(loadError)) {
@@ -121,7 +154,7 @@ export default function App() {
       setAuthStatus("authenticated");
       setPassword("");
       setCameras(nextCameras);
-      setSelectedCameraId(nextCameras[0]?.id ?? null);
+      setSelectedCameraId(firstVisibleCameraId(nextCameras));
     } catch (signInError) {
       setLoginError(isUnauthorizedError(signInError) ? "Password is incorrect." : "Sign in failed.");
     } finally {
@@ -129,15 +162,26 @@ export default function App() {
     }
   }
 
+  const visibleCameras = useMemo(() => cameras.filter((camera) => camera.enabled), [cameras]);
   const selectedCamera = useMemo(
-    () => cameras.find((camera) => camera.id === selectedCameraId) ?? null,
-    [cameras, selectedCameraId],
+    () => visibleCameras.find((camera) => camera.id === selectedCameraId) ?? null,
+    [selectedCameraId, visibleCameras],
   );
   const recordedDates = useMemo(() => recordedDays.map((day) => day.date), [recordedDays]);
   const timelinePlayheadAtMs = playheadAtMs ?? selectedAtMs;
   const updatePlaybackWallTime = useCallback((timestampMs: number | null) => {
     setPlayheadAtMs(timestampMs);
   }, []);
+
+  useEffect(() => {
+    setSelectedCameraId((current) => {
+      if (current && visibleCameras.some((camera) => camera.id === current)) {
+        return current;
+      }
+
+      return firstVisibleCameraId(visibleCameras);
+    });
+  }, [visibleCameras]);
 
   function selectCamera(cameraId: string) {
     playbackRequestId.current += 1;
@@ -152,6 +196,8 @@ export default function App() {
   function changeDate(nextDate: string) {
     playbackRequestId.current += 1;
     setDate(nextDate);
+    setRangeStart(defaultRangeStart(nextDate));
+    setRangeEnd(defaultRangeEnd(nextDate));
     setSelectedAtMs(null);
     setPlayheadAtMs(null);
     setPlaybackPlan(null);
@@ -254,7 +300,7 @@ export default function App() {
     };
   }, [selectedCamera]);
 
-  async function selectTime(timestampMs: number) {
+  async function loadPlaybackRange(start: string, end: string, selectedTimestampMs: number) {
     if (!selectedCamera) {
       return;
     }
@@ -262,11 +308,9 @@ export default function App() {
     const requestId = playbackRequestId.current + 1;
     playbackRequestId.current = requestId;
     const cameraId = selectedCamera.id;
-    const start = new Date(timestampMs).toISOString();
-    const end = new Date(timestampMs + PLAYBACK_WINDOW_MS).toISOString();
 
-    setSelectedAtMs(timestampMs);
-    setPlayheadAtMs(timestampMs);
+    setSelectedAtMs(selectedTimestampMs);
+    setPlayheadAtMs(selectedTimestampMs);
     setPlaybackPlan(null);
     setPlaybackError(null);
     setIsLoadingPlayback(true);
@@ -291,6 +335,25 @@ export default function App() {
     }
   }
 
+  async function selectTime(timestampMs: number) {
+    await loadPlaybackRange(
+      new Date(timestampMs).toISOString(),
+      new Date(timestampMs + PLAYBACK_WINDOW_MS).toISOString(),
+      timestampMs,
+    );
+  }
+
+  async function playCustomRange() {
+    const startAtMs = parseShanghaiDateTimeInput(rangeStart);
+    const endAtMs = parseShanghaiDateTimeInput(rangeEnd);
+    if (startAtMs === null || endAtMs === null || endAtMs <= startAtMs) {
+      setPlaybackError("Invalid custom playback range");
+      return;
+    }
+
+    await loadPlaybackRange(normalizeLocalDateTimeInput(rangeStart), normalizeLocalDateTimeInput(rangeEnd), startAtMs);
+  }
+
   async function refreshIndex() {
     playbackRequestId.current += 1;
     setSelectedAtMs(null);
@@ -307,11 +370,11 @@ export default function App() {
       setAuthStatus("authenticated");
       setCameras(nextCameras);
       setSelectedCameraId((current) => {
-        if (current && nextCameras.some((camera) => camera.id === current)) {
+        if (current && nextCameras.some((camera) => camera.enabled && camera.id === current)) {
           return current;
         }
 
-        return nextCameras[0]?.id ?? null;
+        return firstVisibleCameraId(nextCameras);
       });
     } catch (refreshError) {
       if (isUnauthorizedError(refreshError)) {
@@ -322,6 +385,33 @@ export default function App() {
     } finally {
       setIsRefreshing(false);
     }
+  }
+
+  async function updateCameraSettings(cameraId: string, update: { alias: string; enabled: boolean }) {
+    try {
+      const updated = await api.updateCamera(cameraId, update);
+      setCameras((current) => {
+        const nextCameras = current.map((camera) => (camera.id === cameraId ? { ...camera, ...updated } : camera));
+        setSelectedCameraId((currentCameraId) => {
+          if (currentCameraId && nextCameras.some((camera) => camera.enabled && camera.id === currentCameraId)) {
+            return currentCameraId;
+          }
+
+          return firstVisibleCameraId(nextCameras);
+        });
+        return nextCameras;
+      });
+    } catch (updateError) {
+      if (isUnauthorizedError(updateError)) {
+        requireSignIn();
+      }
+
+      throw updateError;
+    }
+  }
+
+  async function changeAppPassword(currentPassword: string, newPassword: string) {
+    await api.changePassword(currentPassword, newPassword);
   }
 
   if (authStatus === "required") {
@@ -360,14 +450,25 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <CameraSidebar cameras={cameras} onSelectCamera={selectCamera} selectedCameraId={selectedCameraId} />
+      <CameraSidebar
+        cameras={visibleCameras}
+        emptyLabel={cameras.length === 0 ? "No cameras indexed" : "No cameras visible"}
+        onSelectCamera={selectCamera}
+        selectedCameraId={selectedCameraId}
+      />
 
-      <main className="playback-panel">
+      <main className={`playback-panel${view === "settings" ? " is-settings-view" : ""}`}>
         <header className="playback-header">
           <div>
-            <p className="eyebrow">Playback</p>
-            <h1>{selectedCamera?.alias ?? (isLoadingCameras ? "Loading cameras" : "No camera selected")}</h1>
-            {selectedCamera ? (
+            <p className="eyebrow">{view === "settings" ? "Configuration" : "Playback"}</p>
+            <h1>
+              {view === "settings"
+                ? "Settings"
+                : selectedCamera?.alias ?? (isLoadingCameras ? "Loading cameras" : "No camera selected")}
+            </h1>
+            {view === "settings" ? (
+              <p className="camera-context">{cameras.length} mounted streams indexed.</p>
+            ) : selectedCamera ? (
               <p className="camera-context">
                 {selectedCamera.rootPath} · channel {selectedCamera.channel}
               </p>
@@ -376,42 +477,82 @@ export default function App() {
             )}
           </div>
 
-          <RangeControls
-            date={date}
-            disabled={!selectedCamera}
-            isRefreshing={isRefreshing}
-            onDateChange={changeDate}
-            onRefresh={refreshIndex}
-            recordedDates={recordedDates}
-          />
+          <div className="header-actions">
+            <div className="view-switch" aria-label="View">
+              <button
+                aria-pressed={view === "playback"}
+                className={`view-switch-button${view === "playback" ? " is-selected" : ""}`}
+                onClick={() => setView("playback")}
+                type="button"
+              >
+                <MonitorPlay aria-hidden="true" size={15} />
+                Playback
+              </button>
+              <button
+                aria-pressed={view === "settings"}
+                className={`view-switch-button${view === "settings" ? " is-selected" : ""}`}
+                onClick={() => setView("settings")}
+                type="button"
+              >
+                <Settings aria-hidden="true" size={15} />
+                Settings
+              </button>
+            </div>
+
+            {view === "playback" ? (
+              <RangeControls
+                date={date}
+                disabled={!selectedCamera}
+                isRefreshing={isRefreshing}
+                onDateChange={changeDate}
+                onPlayRange={() => void playCustomRange()}
+                onRefresh={refreshIndex}
+                rangeEnd={rangeEnd}
+                rangeStart={rangeStart}
+                recordedDates={recordedDates}
+                onRangeEndChange={setRangeEnd}
+                onRangeStartChange={setRangeStart}
+              />
+            ) : null}
+          </div>
         </header>
 
         {error ? <div className="status-banner">{error}</div> : null}
         {playbackError ? <div className="status-banner">{playbackError}</div> : null}
 
-        {playbackPlan ? (
-          <VirtualPlayer onWallTimeChange={updatePlaybackWallTime} plan={playbackPlan} />
+        {view === "settings" ? (
+          <SettingsPage
+            cameras={cameras}
+            onChangePassword={changeAppPassword}
+            onUpdateCamera={updateCameraSettings}
+          />
         ) : (
-          <section className="video-placeholder" aria-busy={isLoadingPlayback} aria-label="Video player placeholder">
-            <MonitorPlay aria-hidden="true" size={42} />
-            <div>
-              <strong>Video player</strong>
-              <span>
-                {isLoadingPlayback
-                  ? "Loading playback for the selected range."
-                  : selectedCamera
-                    ? selectedAtMs === null
-                      ? "Select a recorded span on the timeline."
-                      : "Select another recorded span to retry playback."
-                    : "Select a camera to preview."}
-              </span>
-            </div>
-          </section>
-        )}
+          <>
+            {playbackPlan ? (
+              <VirtualPlayer onWallTimeChange={updatePlaybackWallTime} plan={playbackPlan} />
+            ) : (
+              <section className="video-placeholder" aria-busy={isLoadingPlayback} aria-label="Video player placeholder">
+                <MonitorPlay aria-hidden="true" size={42} />
+                <div>
+                  <strong>Video player</strong>
+                  <span>
+                    {isLoadingPlayback
+                      ? "Loading playback for the selected range."
+                      : selectedCamera
+                        ? selectedAtMs === null
+                          ? "Select a recorded span on the timeline."
+                          : "Select another recorded span to retry playback."
+                        : "Select a camera to preview."}
+                  </span>
+                </div>
+              </section>
+            )}
 
-        <div className="day-timeline-region" aria-busy={isLoadingTimeline}>
-          <DayTimeline date={date} spans={timeline} selectedAtMs={timelinePlayheadAtMs} onSelectTime={selectTime} />
-        </div>
+            <div className="day-timeline-region" aria-busy={isLoadingTimeline}>
+              <DayTimeline date={date} spans={timeline} selectedAtMs={timelinePlayheadAtMs} onSelectTime={selectTime} />
+            </div>
+          </>
+        )}
       </main>
     </div>
   );
